@@ -1,810 +1,1515 @@
-/* ============================================================
-   Petualangan KPK & FPB — script.js
-   Game edukasi matematika (KPK & FPB) untuk SD kelas 3
-   Vanilla JS, tanpa backend, progress di localStorage.
-   ============================================================ */
-'use strict';
+"use strict";
+/* =========================================================
+   PETUALANGAN FPB & KPK — script.js
 
-/* ---------- Util matematika ---------- */
-function gcd(a, b){ while(b){ [a, b] = [b, a % b]; } return a; }        // FPB
-function lcm(a, b){ return a * b / gcd(a, b); }                          // KPK
-function multiplesUpTo(n, count){ const r=[]; for(let i=1;i<=count;i++) r.push(n*i); return r; }
-function factorsOf(n){ const r=[]; for(let i=1;i<=n;i++) if(n%i===0) r.push(i); return r; }
-function shuffle(arr){ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
-function uniq(arr){ return [...new Set(arr)]; }
+   Daftar isi:
+   1.  Pengaturan (CONFIG, karakter, hewan)
+   2.  Data dunia & level        <-- UBAH / TAMBAH SOAL DI SINI
+   3.  Lencana (badge)
+   4.  Alat bantu matematika
+   5.  Penyimpanan (localStorage)
+   6.  Suara
+   7.  Alat bantu tampilan
+   8.  Navigasi layar
+   9.  Layar: Home, Peta, Belajar, Prestasi, Progress
+   10. Komponen visual (tumpukan, keranjang, garis bilangan)
+   11. Jenis soal (bagi, faktor, lompat, kelipatan, fpb, kpk)
+   12. Mesin permainan (jalannya level)
+   13. Tutorial FPB & KPK
+   14. Mulai!
+   ========================================================= */
 
-/* Buat pilihan jawaban: jawaban benar + 3 pengecoh masuk akal */
-function buildOptions(answer, kind){
-  const opts = new Set([answer]);
-  const pool = [];
-  if(kind === 'KPK'){
-    // pengecoh: kelipatan lain, jumlah dua angka, salah satu angka x2
-    pool.push(answer + 2, answer - 2, answer + 4, Math.round(answer/2), answer*2);
-  } else {
-    pool.push(answer + 1, answer - 1, answer + 2, answer + 3, Math.max(1, answer-2));
-  }
-  const sh = shuffle(pool);
-  for(const p of sh){ if(opts.size>=4) break; if(p>0 && p!==answer) opts.add(p); }
-  let n=1; while(opts.size<4){ opts.add(answer+n*5); n++; }
-  return shuffle([...opts].slice(0,4));
-}
 
-/* ============================================================
-   DATA LEVEL (15 level, mudah ditambah)
-   type: KPK | FPB | STORY_KPK | STORY_FPB | CHOOSE
-   ============================================================ */
+/* =========================================================
+   1. PENGATURAN
+   ========================================================= */
+const CONFIG = {
+  storageKey: "petualangan-fpb-kpk-v1",
+  guide: { emoji: "🦉", name: "Bu Owi" },          // guru pemandu
+  points: { correct: 10, correctNoHint: 15, levelDone: 50 },
+  praise: ["Hebat!", "Pintar sekali!", "Keren!", "Luar biasa!", "Mantap!"],
+  // Opsional: pakai file suara sendiri dari folder assets/sounds.
+  // Contoh: correct: "assets/sounds/benar.mp3"
+  // Jika kosong, game memakai bunyi buatan (tanpa file).
+  soundFiles: {
+    // click: "", correct: "", wrong: "", hop: "", win: ""
+  },
+};
+
+// Karakter pemain yang bisa dipilih di Home
+const CHARACTERS = [
+  { id: "rani", emoji: "👧", name: "Rani" },
+  { id: "dito", emoji: "👦", name: "Dito" },
+  { id: "kiki", emoji: "🐱", name: "Kiki" },
+  { id: "robo", emoji: "🤖", name: "Robo" },
+  { id: "dino", emoji: "🦖", name: "Dino" },
+];
+
+// Hewan pelompat (dipakai soal lompat, kelipatan, dan KPK)
+const ANIMALS = {
+  kelinci: { emoji: "🐰", name: "Kelinci" },
+  katak:   { emoji: "🐸", name: "Katak" },
+  kanguru: { emoji: "🦘", name: "Kanguru" },
+  kucing:  { emoji: "🐱", name: "Kucing" },
+  roket:   { emoji: "🚀", name: "Roket" },
+  ufo:     { emoji: "🛸", name: "UFO" },
+};
+
+// Teman-teman untuk soal "bagi rata"
+const FRIENDS = ["🧒", "👧", "👦", "🧑", "👱", "🧒🏽"];
+
+
+/* =========================================================
+   2. DATA DUNIA & LEVEL
+   ---------------------------------------------------------
+   Jenis soal (type) yang tersedia:
+   - "bagi"      : { total, groups, item, itemName }
+                   Bisakah `total` benda dibagi rata ke `groups` teman?
+   - "faktor"    : { number, item }
+                   Pilih semua faktor dari `number`.
+   - "lompat"    : { step, count, missing, animal }
+                   Deret lompatan 0, step, 2×step ... cari yang hilang.
+   - "kelipatan" : { number, max, animal }
+                   Pilih semua kelipatan `number` sampai `max`.
+   - "fpb"       : { a, b, person, itemA, nameA, itemB, nameB }
+                   Keranjang terbanyak yang isinya sama = FPB.
+   - "kpk"       : { a, b, animalA, animalB, showLine }
+                   Di mana dua hewan pertama kali bertemu = KPK.
+                   showLine: false  -> garis bilangan disembunyikan
+   Jawaban benar DIHITUNG OTOMATIS. Cukup ubah angkanya saja.
+   Opsional: `choices: [..]` untuk menentukan pilihan jawaban sendiri.
+   ========================================================= */
+const WORLDS = [
+  { id: 1, name: "Desa Faktor",       icon: "🌱", color: "#b8f0c6", desc: "Belajar berbagi rata" },
+  { id: 2, name: "Kota Kelipatan",    icon: "🌈", color: "#ffd1e6", desc: "Melompat bersama hewan" },
+  { id: 3, name: "Istana FPB",        icon: "🏰", color: "#ffe0b8", desc: "Keranjang paling banyak" },
+  { id: 4, name: "Planet KPK",        icon: "🚀", color: "#d9d2ff", desc: "Kapan mereka bertemu?" },
+  { id: 5, name: "Tantangan Master",  icon: "🏆", color: "#fff1a8", desc: "Campuran FPB & KPK" },
+];
+
 const LEVELS = [
-  // Level 1-3 : pengenalan, angka kecil
-  { type:'KPK', pairs:[[2,4],[2,3],[3,6]] },
-  { type:'FPB', pairs:[[4,8],[6,9],[4,6]] },
-  { type:'KPK', pairs:[[4,8],[2,6],[3,4]] },
-  // Level 4-6 : angka lebih besar
-  { type:'FPB', pairs:[[8,12],[9,12],[6,15]] },
-  { type:'KPK', pairs:[[4,6],[6,8],[3,5]] },
-  { type:'FPB', pairs:[[12,18],[10,15],[8,20]] },
-  // Level 7-9 : soal cerita
-  { type:'STORY_KPK', pairs:[[4,6],[5,10],[3,4]] },
-  { type:'STORY_FPB', pairs:[[12,18],[8,12],[16,24]] },
-  { type:'STORY_KPK', pairs:[[6,8],[4,10],[6,9]] },
-  // Level 10-12 : campuran, anak memilih KPK atau FPB
-  { type:'CHOOSE', pairs:[['KPK',4,6],['FPB',12,18],['KPK',3,5]] },
-  { type:'CHOOSE', pairs:[['FPB',8,12],['KPK',6,8],['FPB',10,15]] },
-  { type:'CHOOSE', pairs:[['KPK',4,10],['FPB',16,24],['KPK',5,6]] },
-  // Level 13-15 : tantangan (tetap level SD kelas 3)
-  { type:'KPK', pairs:[[6,9],[8,12],[9,12]] },
-  { type:'FPB', pairs:[[18,24],[16,20],[15,20]] },
-  { type:'CHOOSE', pairs:[['KPK',8,12],['FPB',18,24],['KPK',6,10]] },
-];
-const TOTAL_LEVELS = LEVELS.length;
+  /* ---------- DUNIA 1: DESA FAKTOR (pengenalan pembagian & faktor) ---------- */
+  {
+    id: 1, world: 1, title: "Berbagi Rata",
+    intro: "Halo! Di Desa Faktor kita belajar <b>berbagi rata</b>.<br>Artinya semua teman dapat <b>sama banyak</b> dan <b>tidak ada sisa</b>.",
+    questions: [
+      { type: "bagi", total: 6, groups: 2, item: "🍬", itemName: "permen" },
+      { type: "bagi", total: 6, groups: 4, item: "🍬", itemName: "permen" },
+      { type: "bagi", total: 8, groups: 4, item: "🧁", itemName: "kue" },
+    ],
+  },
+  {
+    id: 2, world: 1, title: "Pesta Kue",
+    questions: [
+      { type: "bagi", total: 9, groups: 3, item: "🍪", itemName: "biskuit" },
+      { type: "bagi", total: 10, groups: 3, item: "🍩", itemName: "donat" },
+      { type: "bagi", total: 12, groups: 4, item: "🍓", itemName: "stroberi" },
+    ],
+  },
+  {
+    id: 3, world: 1, title: "Cari Faktor",
+    intro: "Angka yang bisa membagi rata disebut <b>faktor</b>.<br>Contoh: 4 bisa dibagi 1, 2, dan 4.<br>Jadi <b>faktor 4</b> adalah 1, 2, 4.",
+    questions: [
+      { type: "faktor", number: 4, item: "🍪" },
+      { type: "faktor", number: 6, item: "🍬" },
+      { type: "faktor", number: 8, item: "🧁" },
+    ],
+  },
 
-/* ============================================================
-   DATA BADGE
-   ============================================================ */
+  /* ---------- DUNIA 2: KOTA KELIPATAN (pengenalan kelipatan) ---------- */
+  {
+    id: 4, world: 2, title: "Lompat Kelinci",
+    intro: "Di Kota Kelipatan, hewan suka <b>melompat</b>!<br>Lompat 2 langkah terus: 2, 4, 6, 8 ...<br>Angka ini disebut <b>kelipatan 2</b>.",
+    questions: [
+      { type: "lompat", step: 2, count: 4, missing: 4, animal: "kelinci" },
+      { type: "lompat", step: 5, count: 4, missing: 4, animal: "kelinci" },
+      { type: "lompat", step: 3, count: 4, missing: 4, animal: "kelinci" },
+    ],
+  },
+  {
+    id: 5, world: 2, title: "Batu yang Hilang",
+    questions: [
+      { type: "lompat", step: 4, count: 4, missing: 3, animal: "katak" },
+      { type: "lompat", step: 3, count: 4, missing: 2, animal: "katak" },
+      { type: "lompat", step: 10, count: 4, missing: 4, animal: "kanguru" },
+    ],
+  },
+  {
+    id: 6, world: 2, title: "Cari Kelipatan",
+    questions: [
+      { type: "kelipatan", number: 2, max: 12, animal: "kelinci" },
+      { type: "kelipatan", number: 3, max: 12, animal: "katak" },
+      { type: "kelipatan", number: 5, max: 20, animal: "kanguru" },
+    ],
+  },
+
+  /* ---------- DUNIA 3: ISTANA FPB (FPB sederhana) ---------- */
+  {
+    id: 7, world: 3, title: "Keranjang Buah", tutorial: "fpb",
+    intro: "Selamat datang di Istana FPB! 🏰<br>Kita akan membuat keranjang buah sebanyak-banyaknya, tapi isinya harus <b>sama</b>.",
+    questions: [
+      { type: "fpb", a: 4, b: 6, person: "Rani" },
+      { type: "fpb", a: 6, b: 8, person: "Dito", itemA: "🍌", nameA: "pisang", itemB: "🍇", nameB: "anggur" },
+      { type: "fpb", a: 6, b: 9, person: "Rani", itemA: "🍓", nameA: "stroberi", itemB: "🍋", nameB: "lemon" },
+    ],
+  },
+  {
+    id: 8, world: 3, title: "Pasar Istana",
+    questions: [
+      { type: "fpb", a: 8, b: 12, person: "Pak Raja", itemA: "🍎", nameA: "apel", itemB: "🍐", nameB: "pir" },
+      { type: "fpb", a: 10, b: 15, person: "Dito", itemA: "🍬", nameA: "permen", itemB: "🍫", nameB: "cokelat" },
+      { type: "fpb", a: 12, b: 18, person: "Rani" },
+    ],
+  },
+  {
+    id: 9, world: 3, title: "Pesta Raja",
+    questions: [
+      { type: "fpb", a: 12, b: 16, person: "Ratu", itemA: "🧁", nameA: "kue", itemB: "🍩", nameB: "donat" },
+      { type: "fpb", a: 18, b: 24, person: "Pak Raja", itemA: "🍪", nameA: "biskuit", itemB: "🍭", nameB: "lolipop" },
+      { type: "fpb", a: 16, b: 24, person: "Rani", itemA: "🍓", nameA: "stroberi", itemB: "🍊", nameB: "jeruk" },
+    ],
+  },
+
+  /* ---------- DUNIA 4: PLANET KPK (KPK sederhana) ---------- */
+  {
+    id: 10, world: 4, title: "Lompat Bersama", tutorial: "kpk",
+    intro: "Selamat datang di Planet KPK! 🚀<br>Dua hewan melompat dari angka 0.<br>Tekan <b>🐾 Lompat!</b> dan lihat di mana mereka <b>bertemu</b>.",
+    questions: [
+      { type: "kpk", a: 2, b: 3 },
+      { type: "kpk", a: 2, b: 4 },
+      { type: "kpk", a: 3, b: 4 },
+    ],
+  },
+  {
+    id: 11, world: 4, title: "Taman Bintang",
+    questions: [
+      { type: "kpk", a: 4, b: 6 },
+      { type: "kpk", a: 2, b: 5, animalA: "kucing", animalB: "kanguru" },
+      { type: "kpk", a: 3, b: 5, animalA: "roket", animalB: "ufo" },
+    ],
+  },
+  {
+    id: 12, world: 4, title: "Lompatan Jauh",
+    questions: [
+      { type: "kpk", a: 3, b: 6, animalA: "kucing", animalB: "katak" },
+      { type: "kpk", a: 4, b: 5, animalA: "roket", animalB: "ufo" },
+      { type: "kpk", a: 6, b: 8 },
+    ],
+  },
+
+  /* ---------- DUNIA 5: TANTANGAN MASTER (campuran & tantangan) ---------- */
+  {
+    id: 13, world: 5, title: "Campuran Seru",
+    intro: "Sekarang soalnya <b>campuran</b>: ada FPB 🧺 dan KPK 🐾.<br>Baca ceritanya pelan-pelan, ya!",
+    questions: [
+      { type: "fpb", a: 8, b: 10, person: "Dito", itemA: "🍎", nameA: "apel", itemB: "🍌", nameB: "pisang" },
+      { type: "kpk", a: 2, b: 6 },
+      { type: "fpb", a: 9, b: 12, person: "Rani", itemA: "🍬", nameA: "permen", itemB: "🍪", nameB: "biskuit" },
+      { type: "kpk", a: 4, b: 10, animalA: "kucing", animalB: "kanguru" },
+    ],
+  },
+  {
+    id: 14, world: 5, title: "Tanpa Garis",
+    intro: "Tantangan! Garis bilangannya <b>disembunyikan</b>.<br>Kamu pasti bisa! Pakai 💡 petunjuk kalau perlu 😊",
+    questions: [
+      { type: "fpb", a: 12, b: 20, person: "Ratu", itemA: "🧁", nameA: "kue", itemB: "🍓", nameB: "stroberi" },
+      { type: "kpk", a: 6, b: 9, showLine: false },
+      { type: "fpb", a: 14, b: 21, person: "Pak Raja", itemA: "🍊", nameA: "jeruk", itemB: "🍎", nameB: "apel" },
+      { type: "kpk", a: 5, b: 10, showLine: false, animalA: "roket", animalB: "ufo" },
+    ],
+  },
+  {
+    id: 15, world: 5, title: "Master Matematika",
+    intro: "Ini level terakhir! 👑<br>Tunjukkan kalau kamu <b>Master FPB & KPK</b>!",
+    questions: [
+      { type: "fpb", a: 18, b: 27, person: "Rani", itemA: "🍭", nameA: "lolipop", itemB: "🍬", nameB: "permen" },
+      { type: "kpk", a: 8, b: 12, showLine: false },
+      { type: "fpb", a: 16, b: 20, person: "Dito", itemA: "🍪", nameA: "biskuit", itemB: "🍩", nameB: "donat" },
+      { type: "kpk", a: 3, b: 7, showLine: false, animalA: "kucing", animalB: "katak" },
+    ],
+  },
+];
+
+
+/* =========================================================
+   3. LENCANA (BADGE)
+   `check(save)` mengembalikan true jika lencana didapat.
+   ========================================================= */
 const BADGES = [
-  { id:'kpk',   ico:'🐇', name:'Master KPK',        desc:'Selesai 3 level KPK', check:s=>countTypeCleared(s,'KPK')>=3 },
-  { id:'fpb',   ico:'🍬', name:'Master FPB',        desc:'Selesai 3 level FPB', check:s=>countTypeCleared(s,'FPB')>=3 },
-  { id:'jago',  ico:'🧮', name:'Jago Berhitung',    desc:'Kumpulkan 200 poin',  check:s=>s.points>=200 },
-  { id:'l5',    ico:'🎖️', name:'5 Level Selesai',   desc:'Tamatkan 5 level',    check:s=>levelsCleared(s)>=5 },
-  { id:'l10',   ico:'🏅', name:'10 Level Selesai',  desc:'Tamatkan 10 level',   check:s=>levelsCleared(s)>=10 },
-  { id:'all',   ico:'👑', name:'Semua Level Selesai',desc:'Tamatkan 15 level',   check:s=>levelsCleared(s)>=TOTAL_LEVELS },
+  { id: "pemula",  icon: "🌟", name: "Langkah Pertama",   desc: "Selesaikan level 1",               check: s => levelsDone(s) >= 1 },
+  { id: "murid-fpb", icon: "📘", name: "Murid FPB",       desc: "Selesaikan pelajaran FPB",         check: s => s.tutorials.fpb },
+  { id: "murid-kpk", icon: "📗", name: "Murid KPK",       desc: "Selesaikan pelajaran KPK",         check: s => s.tutorials.kpk },
+  { id: "desa",    icon: "🌱", name: "Penjelajah Desa",   desc: "Tamatkan Desa Faktor",             check: s => worldDone(s, 1) },
+  { id: "kota",    icon: "🌈", name: "Pelompat Hebat",    desc: "Tamatkan Kota Kelipatan",          check: s => worldDone(s, 2) },
+  { id: "istana",  icon: "🏰", name: "Pahlawan FPB",      desc: "Tamatkan Istana FPB",              check: s => worldDone(s, 3) },
+  { id: "planet",  icon: "🚀", name: "Astronot KPK",      desc: "Tamatkan Planet KPK",              check: s => worldDone(s, 4) },
+  { id: "master",  icon: "👑", name: "Master Matematika", desc: "Tamatkan semua level",             check: s => worldDone(s, 5) },
+  { id: "cerdas",  icon: "🧠", name: "Otak Cemerlang",    desc: "Selesaikan level tanpa petunjuk",  check: s => s.flags.noHintLevel },
+  { id: "bintang", icon: "⭐", name: "Bintang Tiga",      desc: "Dapat 3 bintang di satu level",    check: s => Object.values(s.levels).some(l => l.stars === 3) },
+  { id: "koin",    icon: "🪙", name: "Kolektor Koin",     desc: "Kumpulkan 500 koin",               check: s => s.coins >= 500 },
 ];
 
-/* ============================================================
-   STATE + LOCALSTORAGE
-   ============================================================ */
-const SAVE_KEY = 'petualangan_kpk_fpb_v1';
-const defaultState = {
-  points:0,
-  stars:{},        // { levelIndex: bintang(1-3) }
-  cleared:{},      // { levelIndex: true }
-  badges:{},       // { badgeId: true }
-  bestChallenge:0,
-  sound:true,
-  livesOn:true,
-};
-let state = loadProgress();
+function levelsDone(s) { return Object.keys(s.levels).length; }
+function worldDone(s, worldId) {
+  return LEVELS.filter(l => l.world === worldId).every(l => s.levels[l.id]);
+}
 
-function loadProgress(){
-  try{
-    const raw = localStorage.getItem(SAVE_KEY);
-    if(raw){ return Object.assign({}, defaultState, JSON.parse(raw)); }
-  }catch(e){ console.warn('Gagal memuat progress:', e); }
-  return JSON.parse(JSON.stringify(defaultState));
-}
-function saveProgress(){
-  try{ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
-  catch(e){ console.warn('Gagal menyimpan progress:', e); }
-}
-function levelsCleared(s=state){ return Object.keys(s.cleared).filter(k=>s.cleared[k]).length; }
-function countTypeCleared(s, t){
-  let c=0;
-  Object.keys(s.cleared).forEach(k=>{
-    if(!s.cleared[k]) return;
-    const lv = LEVELS[+k];
-    if(!lv) return;
-    if(t==='KPK' && (lv.type==='KPK'||lv.type==='STORY_KPK')) c++;
-    if(t==='FPB' && (lv.type==='FPB'||lv.type==='STORY_FPB')) c++;
-  });
-  return c;
-}
-function totalStars(s=state){ return Object.values(s.stars).reduce((a,b)=>a+b,0); }
-function badgeCount(s=state){ return Object.values(s.badges).filter(Boolean).length; }
-function isUnlocked(idx){ return idx===0 || !!state.cleared[idx-1]; }
 
-/* ============================================================
-   AUDIO (Web Audio API — tanpa file)
-   ============================================================ */
-let audioCtx = null;
-function ensureAudio(){
-  if(!audioCtx){
-    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-    catch(e){ audioCtx = null; }
+/* =========================================================
+   4. ALAT BANTU MATEMATIKA
+   ========================================================= */
+function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }       // FPB
+function lcm(a, b) { return (a * b) / gcd(a, b); }                // KPK
+
+function factorsOf(n) {
+  const list = [];
+  for (let i = 1; i <= n; i++) if (n % i === 0) list.push(i);
+  return list;
+}
+function multiplesOf(n, max) {
+  const list = [];
+  for (let v = n; v <= max; v += n) list.push(v);
+  return list;
+}
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  return a;
 }
-function beep(freq, dur=0.12, type='sine', vol=0.15){
-  if(!state.sound || !audioCtx) return;
-  try{
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.type = type; o.frequency.value = freq;
-    g.gain.setValueAtTime(vol, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime + dur);
-  }catch(e){/* silent */}
+// Buat pilihan jawaban: jawaban + pengecoh (priority dulu, lalu acak dari pool)
+function pickChoices(answer, priority, pool, n) {
+  const out = [answer];
+  const add = v => { if (out.length < n && v > 0 && !out.includes(v)) out.push(v); };
+  priority.forEach(add);
+  shuffle(pool).forEach(add);
+  return out.sort((x, y) => x - y);
 }
-const sfx = {
-  click(){ beep(520, 0.06, 'square', 0.08); },
-  correct(){ beep(660,0.1,'sine',0.13); setTimeout(()=>beep(880,0.14,'sine',0.13),90); },
-  wrong(){ beep(300,0.15,'sawtooth',0.1); },
-  win(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.16,'triangle',0.14), i*130)); },
-  star(){ beep(1200,0.1,'sine',0.12); },
+function divText(n, d) {
+  return n % d === 0
+    ? `${n} ÷ ${d} = ${n / d} ✅`
+    : `${n} ÷ ${d} = ${Math.floor(n / d)} sisa ${n % d} ❌`;
+}
+
+
+/* =========================================================
+   5. PENYIMPANAN (localStorage)
+   ========================================================= */
+function defaultSave() {
+  return {
+    unlocked: 1,                 // level tertinggi yang terbuka
+    levels: {},                  // { idLevel: { stars, best } }
+    coins: 0,
+    badges: [],
+    stats: { correct: 0, wrong: 0, hints: 0, played: 0 },
+    tutorials: { fpb: false, kpk: false },
+    flags: { noHintLevel: false },
+    avatar: "rani",
+    sound: true,
+  };
+}
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(CONFIG.storageKey);
+    if (!raw) return defaultSave();
+    const data = JSON.parse(raw);
+    const base = defaultSave();
+    return {
+      ...base, ...data,
+      stats: { ...base.stats, ...data.stats },
+      tutorials: { ...base.tutorials, ...data.tutorials },
+      flags: { ...base.flags, ...data.flags },
+    };
+  } catch (e) {
+    return defaultSave();
+  }
+}
+function saveGame() {
+  try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(save)); } catch (e) { /* abaikan */ }
+}
+let save = loadSave();
+
+function totalStars() {
+  return Object.values(save.levels).reduce((sum, l) => sum + (l.stars || 0), 0);
+}
+function avatar() {
+  return CHARACTERS.find(c => c.id === save.avatar) || CHARACTERS[0];
+}
+
+
+/* =========================================================
+   6. SUARA (dibuat dengan Web Audio, tanpa file)
+   ========================================================= */
+const SOUND_NOTES = {
+  click:   [[660, 0.05]],
+  hop:     [[520, 0.05], [780, 0.07]],
+  correct: [[523, 0.1], [659, 0.1], [784, 0.18]],
+  wrong:   [[392, 0.12], [330, 0.18]],
+  coin:    [[988, 0.06], [1319, 0.12]],
+  win:     [[523, 0.12], [659, 0.12], [784, 0.12], [1047, 0.32]],
+};
+const Sound = {
+  ctx: null,
+  play(type) {
+    if (!save.sound) return;
+    const file = CONFIG.soundFiles[type];
+    if (file) { new Audio(file).play().catch(() => {}); return; }
+    try {
+      this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      let t = this.ctx.currentTime;
+      (SOUND_NOTES[type] || []).forEach(([freq, dur]) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.18, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.connect(gain).connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+        t += dur;
+      });
+    } catch (e) { /* browser tidak mendukung suara */ }
+  },
 };
 
-/* ============================================================
-   NAVIGASI SCREEN
-   ============================================================ */
-function show(name){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  const el = document.getElementById('screen-'+name);
-  if(el) el.classList.add('active');
-  // refresh data tiap screen
-  if(name==='menu') renderMenu();
-  if(name==='levelselect') renderLevelSelect();
-  if(name==='reward') renderReward();
-  if(name==='progress') renderProgress();
-  if(name==='settings') renderSettings();
+
+/* =========================================================
+   7. ALAT BANTU TAMPILAN
+   ========================================================= */
+const $ = sel => document.querySelector(sel);
+
+function el(tag, className, html) {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+function emojis(emoji, n) {
+  return `<span>${emoji}</span>`.repeat(Math.max(0, n));
+}
+function chips(list, highlight = []) {
+  return list.map(v => `<span class="chip ${highlight.includes(v) ? "hl" : ""}">${v}</span>`).join("");
+}
+function shake(elem) {
+  elem.classList.remove("shake");
+  void elem.offsetWidth;          // restart animasi
+  elem.classList.add("shake");
+}
+function confetti(count = 24) {
+  const box = $("#confetti");
+  const pieces = ["🎉", "⭐", "✨", "🎊", "🌟", "🪙"];
+  for (let i = 0; i < count; i++) {
+    const p = el("span", "confetti-piece", pieces[i % pieces.length]);
+    p.style.left = Math.random() * 100 + "vw";
+    p.style.animationDuration = 1.6 + Math.random() * 1.6 + "s";
+    p.style.animationDelay = Math.random() * 0.4 + "s";
+    box.appendChild(p);
+    setTimeout(() => p.remove(), 3800);
+  }
+}
+/** Tombol pilihan jawaban. options: angka, atau {label, value}. */
+function choiceButtons(container, options, onPick) {
+  container.innerHTML = "";
+  options.forEach(opt => {
+    const o = typeof opt === "object" ? opt : { label: opt, value: opt };
+    const b = el("button", "choice", o.label);
+    b.onclick = () => { Sound.play("click"); onPick(o.value, b); };
+    container.appendChild(b);
+  });
+}
+/** Jendela pesan. buttons: [{label, cls, onClick}] */
+function showModal({ icon = "", title = "", text = "", buttons = [] }) {
+  $("#modal-icon").textContent = icon;
+  $("#modal-title").innerHTML = title;
+  $("#modal-text").innerHTML = text;
+  const box = $("#modal-buttons");
+  box.innerHTML = "";
+  (buttons.length ? buttons : [{ label: "OK" }]).forEach(btn => {
+    const b = el("button", "btn " + (btn.cls || "btn-primary"), btn.label);
+    b.onclick = () => { closeModal(); Sound.play("click"); if (btn.onClick) btn.onClick(); };
+    box.appendChild(b);
+  });
+  $("#modal").classList.remove("hidden");
+}
+function closeModal() { $("#modal").classList.add("hidden"); }
+
+function updateTopbar() {
+  const a = avatar();
+  $("#tb-avatar").textContent = a.emoji;
+  $("#tb-name").textContent = a.name;
+  $("#tb-coins").textContent = save.coins;
+  $("#tb-stars").textContent = totalStars();
+  $("#btn-sound").textContent = save.sound ? "🔊" : "🔇";
 }
 
-function toast(msg, ms=1600){
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  clearTimeout(toast._t);
-  toast._t = setTimeout(()=>t.classList.remove('show'), ms);
+
+/* =========================================================
+   8. NAVIGASI LAYAR
+   ========================================================= */
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  $("#screen-" + id).classList.add("active");
+  document.body.dataset.screen = id;
+  window.scrollTo(0, 0);
+  updateTopbar();
+}
+const SCREEN_RENDER = {
+  home: renderHome,
+  map: renderMap,
+  learn: renderLearn,
+  reward: renderReward,
+  progress: renderProgress,
+};
+function go(name) {
+  if (SCREEN_RENDER[name]) SCREEN_RENDER[name]();
+  showScreen(name);
 }
 
-/* ============================================================
-   RENDER: MENU
-   ============================================================ */
-function renderMenu(){
-  document.getElementById('menuPoints').textContent = state.points;
-  document.getElementById('menuBadges').textContent = badgeCount();
+
+/* =========================================================
+   9. LAYAR: HOME, PETA, BELAJAR, PRESTASI, PROGRESS
+   ========================================================= */
+function renderHome() {
+  $("#home-avatar").textContent = avatar().emoji;
+  const list = $("#avatar-list");
+  list.innerHTML = "";
+  CHARACTERS.forEach(c => {
+    const b = el("button", "avatar-btn" + (c.id === save.avatar ? " selected" : ""), `${c.emoji}<small>${c.name}</small>`);
+    b.onclick = () => { save.avatar = c.id; saveGame(); Sound.play("click"); renderHome(); updateTopbar(); };
+    list.appendChild(b);
+  });
 }
 
-/* ============================================================
-   RENDER: LEVEL SELECT
-   ============================================================ */
-function renderLevelSelect(){
-  document.getElementById('lsPoints').textContent = state.points;
-  const grid = document.getElementById('levelGrid');
-  grid.innerHTML = '';
-  LEVELS.forEach((lv, idx)=>{
-    const unlocked = isUnlocked(idx);
-    const stars = state.stars[idx] || 0;
-    const tag = tagOf(lv.type);
-    const card = document.createElement('div');
-    card.className = 'level-card' + (unlocked ? '' : ' locked');
+function renderMap() {
+  const box = $("#world-list");
+  box.innerHTML = "";
+  WORLDS.forEach(w => {
+    const levels = LEVELS.filter(l => l.world === w.id);
+    const done = levels.filter(l => save.levels[l.id]).length;
+    const worldOpen = levels.some(l => l.id <= save.unlocked);
+    const card = el("div", "world" + (worldOpen ? "" : " locked"));
+    card.style.setProperty("--wc", w.color);
     card.innerHTML = `
-      ${unlocked ? '' : '<span class="lock-ico">🔒</span>'}
-      <div class="lc-num">${idx+1}</div>
-      <span class="lc-type ${tag}">${tag}</span>
-      <div class="lc-stars">${unlocked ? starStr(stars) : ''}</div>`;
-    if(unlocked){
-      card.addEventListener('click', ()=>{ sfx.click(); startLevel(idx); });
-    }else{
-      card.addEventListener('click', ()=>toast('Selesaikan level sebelumnya dulu ya! 🔒'));
-    }
-    grid.appendChild(card);
+      <div class="world-head">
+        <span class="world-icon">${w.icon}</span>
+        <div><h3>Dunia ${w.id}: ${w.name}</h3><p>${w.desc}</p></div>
+        <span class="world-count">${done}/${levels.length}</span>
+      </div>`;
+    const row = el("div", "level-row");
+    levels.forEach(l => {
+      const result = save.levels[l.id];
+      const open = l.id <= save.unlocked;
+      const isCurrent = open && !result;
+      const stars = result ? "⭐".repeat(result.stars) + "☆".repeat(3 - result.stars) : "";
+      const b = el("button", "level-btn" + (result ? " done" : "") + (open ? "" : " locked") + (isCurrent ? " current" : ""));
+      b.innerHTML = `
+        ${isCurrent ? `<span class="here">${avatar().emoji}</span>` : ""}
+        ${open ? l.id : "🔒"}
+        <span class="lv-stars">${stars}</span>`;
+      b.title = l.title;
+      b.onclick = () => {
+        if (!open) {
+          Sound.play("wrong");
+          showModal({ icon: "🔒", title: "Level masih terkunci", text: "Selesaikan level sebelumnya dulu, ya! 😊" });
+          return;
+        }
+        Sound.play("click");
+        startLevel(l.id);
+      };
+      const wrap = el("div", "");
+      wrap.style.textAlign = "center";
+      wrap.appendChild(b);
+      wrap.appendChild(el("span", "level-name", l.title));
+      row.appendChild(wrap);
+    });
+    card.appendChild(row);
+    box.appendChild(card);
   });
 }
-function tagOf(type){
-  if(type==='KPK'||type==='STORY_KPK') return 'KPK';
-  if(type==='FPB'||type==='STORY_FPB') return 'FPB';
-  return 'MIX';
-}
-function starStr(n){ return n>0 ? '⭐'.repeat(n) + '☆'.repeat(3-n) : '☆☆☆'; }
 
-/* ============================================================
-   TUTORIAL INTERAKTIF (KPK & FPB)
-   ============================================================ */
-let tutState = { mode:'KPK', step:0, steps:[] };
-
-function openTutorial(mode){
-  tutState.mode = mode;
-  tutState.step = 0;
-  tutState.steps = mode==='KPK' ? kpkTutorialSteps() : fpbTutorialSteps();
-  document.getElementById('tutTitle').textContent = mode==='KPK' ? 'Belajar KPK 🐇' : 'Belajar FPB 🍬';
-  show('tutorial');
-  renderTutStep();
+function renderLearn() {
+  $("#done-fpb").textContent = save.tutorials.fpb ? "✅ Selesai" : "";
+  $("#done-kpk").textContent = save.tutorials.kpk ? "✅ Selesai" : "";
 }
 
-function kpkTutorialSteps(){
-  return [
-    ()=>`<div class="mascot mascot-sm bounce"><div class="mascot-face"><span class="m-eye"></span><span class="m-eye"></span><span class="m-smile"></span></div></div>
-      <h3>Yuk kenalan dengan Kelipatan!</h3>
-      <p>Kelipatan adalah hasil kali sebuah angka.</p>
-      <div class="number-line">${[2,4,6,8,10,12].map((n,i)=>`<span class="nl-chip pop" style="animation-delay:${i*0.12}s">${n}</span>`).join('')}</div>
-      <p>Ini kelipatan <b>2</b>: 2, 4, 6, 8, 10, 12...</p>`,
-    ()=>`<h3>Sekarang coba dua angka</h3>
-      <p>Ada dua teman yang <b>melompat</b>! 🐰</p>
-      <div class="jump-row"><div class="jump-label" style="color:#1c7ec4">Teman A lompat 3-3:</div>
-        <div class="number-line">${[3,6,9,12,15].map((n,i)=>`<span class="nl-chip a pop" style="animation-delay:${i*0.1}s">${n}</span>`).join('')}</div></div>
-      <div class="jump-row"><div class="jump-label" style="color:#c93980">Teman B lompat 4-4:</div>
-        <div class="number-line">${[4,8,12,16].map((n,i)=>`<span class="nl-chip b pop" style="animation-delay:${i*0.1}s">${n}</span>`).join('')}</div></div>
-      <p>Kapan mereka bertemu di angka yang sama?</p>`,
-    ()=>`<h3>Ketemu! 🎉</h3>
-      <p>Lihat, angka yang sama pertama kali adalah...</p>
-      <div class="number-line">
-        <span class="nl-chip a">3,6,9</span>
-        <span class="nl-chip hit">12</span>
-        <span class="nl-chip b">4,8</span>
-      </div>
-      <p class="meet-tag">Mereka bertemu di 12!</p>
-      <p><b>KPK dari 3 dan 4 adalah 12.</b></p>
-      <p class="q-sub">KPK = angka yang <b>bertemu duluan</b>.</p>`,
-    ()=>`<div class="mascot mascot-sm bounce"><div class="mascot-face"><span class="m-eye"></span><span class="m-eye"></span><span class="m-smile"></span></div></div>
-      <h3>Kamu sudah paham KPK! 🌟</h3>
-      <p>Ingat: cari kelipatan kedua angka, lalu ambil angka <b>sama yang paling kecil</b>.</p>
-      <p>Yuk kita coba bermain! 🎮</p>`,
-  ];
-}
-function fpbTutorialSteps(){
-  return [
-    ()=>`<div class="mascot mascot-sm bounce"><div class="mascot-face"><span class="m-eye"></span><span class="m-eye"></span><span class="m-smile"></span></div></div>
-      <h3>Yuk kenalan dengan Faktor!</h3>
-      <p>Faktor adalah angka yang bisa <b>membagi habis</b>.</p>
-      <div class="number-line">${[1,2,4,8].map((n,i)=>`<span class="nl-chip pop" style="animation-delay:${i*0.12}s">${n}</span>`).join('')}</div>
-      <p>Angka <b>8</b> bisa dibagi: 1, 2, 4, 8.</p>`,
-    ()=>`<h3>Sekarang coba dua angka</h3>
-      <p>Kita bagi <b>permen</b> secara adil! 🍬</p>
-      <div class="jump-row"><div class="jump-label" style="color:#1c7ec4">Faktor 8:</div>
-        <div class="number-line">${[1,2,4,8].map((n,i)=>`<span class="nl-chip a pop" style="animation-delay:${i*0.1}s">${n}</span>`).join('')}</div></div>
-      <div class="jump-row"><div class="jump-label" style="color:#c93980">Faktor 12:</div>
-        <div class="number-line">${[1,2,3,4,6,12].map((n,i)=>`<span class="nl-chip b pop" style="animation-delay:${i*0.1}s">${n}</span>`).join('')}</div></div>
-      <p>Mana angka yang <b>sama</b>?</p>`,
-    ()=>`<h3>Angka yang sama 🎉</h3>
-      <div class="number-line">
-        <span class="nl-chip">1</span>
-        <span class="nl-chip">2</span>
-        <span class="nl-chip hit">4</span>
-      </div>
-      <p>Angka sama: 1, 2, 4. Yang <b>terbesar</b> adalah <b>4</b>.</p>
-      <p class="meet-tag">FPB dari 8 dan 12 adalah 4!</p>
-      <p class="q-sub">FPB = angka pembagi <b>terbesar</b> yang sama.</p>`,
-    ()=>`<div class="mascot mascot-sm bounce"><div class="mascot-face"><span class="m-eye"></span><span class="m-eye"></span><span class="m-smile"></span></div></div>
-      <h3>Kamu sudah paham FPB! 🌟</h3>
-      <p>Ingat: cari faktor kedua angka, lalu ambil angka <b>sama yang paling besar</b>.</p>
-      <p>Yuk kita coba bermain! 🎮</p>`,
-  ];
-}
-
-function renderTutStep(){
-  const stage = document.getElementById('tutStage');
-  stage.innerHTML = tutState.steps[tutState.step]();
-  // dots
-  const dots = document.getElementById('tutDots');
-  dots.innerHTML = tutState.steps.map((_,i)=>`<i class="${i===tutState.step?'on':''}"></i>`).join('');
-  // buttons
-  document.getElementById('tutPrev').style.visibility = tutState.step===0 ? 'hidden' : 'visible';
-  const next = document.getElementById('tutNext');
-  next.textContent = tutState.step===tutState.steps.length-1 ? 'Selesai 🎮' : 'Lanjut ›';
-}
-
-/* ============================================================
-   GAMEPLAY (Level & Challenge)
-   ============================================================ */
-let game = null;
-
-function makeQuestion(type, args){
-  // args: [a,b] atau ['KPK',a,b] untuk CHOOSE
-  if(type==='CHOOSE'){
-    const [op, a, b] = args;
-    const answer = op==='KPK' ? lcm(a,b) : gcd(a,b);
-    return { kind:'CHOOSE', op, a, b, answer };
-  }
-  const [a,b] = args;
-  if(type==='KPK' || type==='STORY_KPK'){
-    return { kind:'KPK', story:type==='STORY_KPK', a, b, answer:lcm(a,b), options:buildOptions(lcm(a,b),'KPK') };
-  }
-  // FPB
-  return { kind:'FPB', story:type==='STORY_FPB', a, b, answer:gcd(a,b), options:buildOptions(gcd(a,b),'FPB') };
-}
-
-function startLevel(idx){
-  const lv = LEVELS[idx];
-  const questions = lv.pairs.map(p => makeQuestion(lv.type, p));
-  game = {
-    mode:'level', levelIndex:idx, tag:tagOf(lv.type),
-    questions, qi:0, correct:0, sessionPoints:0,
-    streak:0, lives:3, hintStep:0, answered:false, chooseStage:0,
-  };
-  enterGame();
-}
-
-function startChallenge(){
-  // 8 soal acak campuran KPK & FPB dari angka ramah SD
-  const bank = [[4,6],[6,8],[8,12],[9,12],[12,18],[10,15],[6,9],[4,10],[16,24],[6,10],[8,20],[15,20]];
-  const qs = [];
-  const picks = shuffle(bank).slice(0,8);
-  picks.forEach(p=>{
-    const useKPK = Math.random()<0.5;
-    qs.push(makeQuestion(useKPK?'KPK':'FPB', p));
-  });
-  game = {
-    mode:'challenge', levelIndex:-1, tag:'MIX',
-    questions:qs, qi:0, correct:0, sessionPoints:0,
-    streak:0, lives:3, hintStep:0, answered:false, chooseStage:0,
-  };
-  enterGame();
-}
-
-function enterGame(){
-  show('game');
-  updateGameHud();
-  renderQuestion();
-}
-
-function updateGameHud(){
-  document.getElementById('gamePoints').textContent = state.points + game.sessionPoints;
-  const lives = document.getElementById('gameLives');
-  if(state.livesOn){
-    lives.style.display = 'flex';
-    lives.textContent = '❤️'.repeat(game.lives) + '🤍'.repeat(Math.max(0,3-game.lives));
-  }else{
-    lives.style.display = 'none';
-  }
-  document.getElementById('qTag').textContent = game.tag;
-  document.getElementById('qTag').className = 'q-tag ' + game.tag;
-  document.getElementById('qCount').textContent = `Soal ${game.qi+1} / ${game.questions.length}`;
-  document.getElementById('gameProgressBar').style.width = (game.qi/game.questions.length*100)+'%';
-}
-
-function renderQuestion(){
-  game.answered = false;
-  game.hintStep = 0;
-  game.chooseStage = 0;
-  updateGameHud();
-  const q = game.questions[game.qi];
-  const stage = document.getElementById('gameStage');
-
-  if(q.kind==='CHOOSE'){
-    renderChooseQuestion(q, stage);
-    return;
-  }
-  if(q.kind==='KPK'){ renderKPKQuestion(q, stage); return; }
-  renderFPBQuestion(q, stage);
-}
-
-/* ---- KPK question ---- */
-function renderKPKQuestion(q, stage){
-  const mulA = multiplesUpTo(q.a, 6);
-  const mulB = multiplesUpTo(q.b, 6);
-  const qtext = q.story
-    ? storyKPKText(q)
-    : `Cari <b>KPK</b> dari <b>${q.a}</b> dan <b>${q.b}</b>`;
-  const sub = q.story ? 'Kapan mereka bertemu lagi?' : 'Angka mana yang mereka temui duluan?';
-  stage.innerHTML = `
-    <p class="q-text">${qtext}</p>
-    <p class="q-sub">${sub}</p>
-    <div class="q-visual"><div class="hoppers">
-      <div class="hopper"><div class="h-name">🐰 Lompat ${q.a}</div>
-        <div class="hop-track">${mulA.map(n=>`<span class="hop-chip a${n===q.answer?' common':''}">${n}</span>`).join('')}</div></div>
-      <div class="hopper"><div class="h-name">🐢 Lompat ${q.b}</div>
-        <div class="hop-track">${mulB.map(n=>`<span class="hop-chip b${n===q.answer?' common':''}">${n}</span>`).join('')}</div></div>
-    </div></div>
-    <div class="options">${q.options.map(o=>`<button class="opt" data-val="${o}">${o}</button>`).join('')}</div>
-    <button class="btn hint-btn">💡 PETUNJUK</button>
-    <div class="feedback" id="fb"></div>
-    <div id="hintArea"></div>`;
-  wireAnswer(stage, q);
-}
-function storyKPKText(q){
-  const t = [
-    `🚌 Bus A datang tiap <b>${q.a}</b> menit. Bus B tiap <b>${q.b}</b> menit. Kapan datang bersama lagi?`,
-    `👏 Rina bertepuk tiap <b>${q.a}</b> detik. Budi tiap <b>${q.b}</b> detik. Kapan bertepuk bersama?`,
-    `🔔 Lonceng A bunyi tiap <b>${q.a}</b> menit, lonceng B tiap <b>${q.b}</b> menit. Kapan bunyi bersama?`,
-  ];
-  q._storyPick = q._storyPick ?? Math.floor(Math.random()*t.length);
-  return t[q._storyPick];
-}
-
-/* ---- FPB question ---- */
-function renderFPBQuestion(q, stage){
-  const facA = factorsOf(q.a);
-  const facB = factorsOf(q.b);
-  const qtext = q.story ? storyFPBText(q) : `Cari <b>FPB</b> dari <b>${q.a}</b> dan <b>${q.b}</b>`;
-  const sub = q.story ? 'Berapa kelompok terbanyak yang sama rata?' : 'Angka pembagi terbesar yang sama?';
-  stage.innerHTML = `
-    <p class="q-text">${qtext}</p>
-    <p class="q-sub">${sub}</p>
-    <div class="q-visual"><div class="candy-wrap">
-      <div><span class="candy-label" style="color:#1c7ec4">🍬 ${q.a} permen — faktor:</span>
-        <div class="candy-row" style="margin-top:6px">${facA.map(n=>`<span class="hop-chip a${facA.includes(n)&&facB.includes(n)?' common':''}">${n}</span>`).join('')}</div></div>
-      <div><span class="candy-label" style="color:#c93980">🍭 ${q.b} permen — faktor:</span>
-        <div class="candy-row" style="margin-top:6px">${facB.map(n=>`<span class="hop-chip b${facA.includes(n)&&facB.includes(n)?' common':''}">${n}</span>`).join('')}</div></div>
-    </div></div>
-    <div class="options">${q.options.map(o=>`<button class="opt" data-val="${o}">${o}</button>`).join('')}</div>
-    <button class="btn hint-btn">💡 PETUNJUK</button>
-    <div class="feedback" id="fb"></div>
-    <div id="hintArea"></div>`;
-  wireAnswer(stage, q);
-}
-function storyFPBText(q){
-  const t = [
-    `🍬 Ada <b>${q.a}</b> permen merah dan <b>${q.b}</b> permen biru dibagi rata ke beberapa kelompok. Berapa kelompok terbanyak?`,
-    `🎁 <b>${q.a}</b> pensil dan <b>${q.b}</b> buku dibagi ke anak sama rata. Berapa anak terbanyak?`,
-    `🌸 <b>${q.a}</b> bunga merah dan <b>${q.b}</b> bunga putih dibuat buket sama rata. Berapa buket terbanyak?`,
-  ];
-  q._storyPick = q._storyPick ?? Math.floor(Math.random()*t.length);
-  return t[q._storyPick];
-}
-
-/* ---- CHOOSE question (pilih KPK/FPB dulu, lalu jawab) ---- */
-function renderChooseQuestion(q, stage){
-  const story = q.op==='KPK'
-    ? `👏 Rina bertepuk tiap <b>${q.a}</b> detik, Budi tiap <b>${q.b}</b> detik. Kapan bertepuk <b>bersama lagi</b>?`
-    : `🍬 <b>${q.a}</b> permen dan <b>${q.b}</b> permen dibagi rata ke kelompok. Berapa <b>kelompok terbanyak</b>?`;
-  stage.innerHTML = `
-    <p class="q-text">${story}</p>
-    <p class="q-sub">Soal ini pakai cara apa?</p>
-    <div class="choose">
-      <button class="opt pick-kpk" data-op="KPK">KPK<br><small style="font-size:.7rem;font-weight:600">bertemu / bersama</small></button>
-      <button class="opt pick-fpb" data-op="FPB">FPB<br><small style="font-size:.7rem;font-weight:600">membagi rata</small></button>
+function renderReward() {
+  const got = BADGES.filter(b => save.badges.includes(b.id)).length;
+  $("#reward-box").innerHTML = `
+    <div class="summary">
+      <div class="sum-card"><div class="s-icon">🪙</div><b>${save.coins}</b><small>Koin</small></div>
+      <div class="sum-card"><div class="s-icon">⭐</div><b>${totalStars()}</b><small>Bintang</small></div>
+      <div class="sum-card"><div class="s-icon">🏆</div><b>${got}/${BADGES.length}</b><small>Lencana</small></div>
     </div>
-    <div class="feedback" id="fb"></div>`;
-  stage.querySelectorAll('.choose .opt').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      if(game.answered) return;
-      const pick = btn.dataset.op;
-      const fb = document.getElementById('fb');
-      if(pick===q.op){
-        sfx.correct();
-        btn.classList.add('correct');
-        fb.textContent = `Betul! Ini pakai ${q.op}. Sekarang hitung ya! 👍`;
-        fb.className = 'feedback good';
-        game.answered = true;
-        // buka tahap hitung
-        setTimeout(()=>renderChooseCompute(q, stage), 900);
-      }else{
-        sfx.wrong();
-        btn.classList.add('wrong');
-        loseLife();
-        fb.textContent = q.op==='KPK'
-          ? 'Hampir! Kata "bersama lagi" artinya mereka bertemu → pakai KPK.'
-          : 'Hampir! Kata "membagi rata" → pakai FPB.';
-        fb.className = 'feedback bad';
-        setTimeout(()=>btn.classList.remove('wrong'), 500);
+    <div class="badge-grid">
+      ${BADGES.map(b => {
+        const on = save.badges.includes(b.id);
+        return `<div class="badge ${on ? "on" : "off"}">
+          <span class="b-icon">${on ? b.icon : "🔒"}</span>
+          <b>${b.name}</b><small>${b.desc}</small></div>`;
+      }).join("")}
+    </div>`;
+}
+
+function renderProgress() {
+  const s = save.stats;
+  let html = `
+    <div class="summary">
+      <div class="sum-card"><div class="s-icon">🗺️</div><b>${levelsDone(save)}/${LEVELS.length}</b><small>Level selesai</small></div>
+      <div class="sum-card"><div class="s-icon">⭐</div><b>${totalStars()}/${LEVELS.length * 3}</b><small>Bintang</small></div>
+      <div class="sum-card"><div class="s-icon">✅</div><b>${s.correct}</b><small>Jawaban benar</small></div>
+      <div class="sum-card"><div class="s-icon">💡</div><b>${s.hints}</b><small>Petunjuk dipakai</small></div>
+    </div>`;
+  WORLDS.forEach(w => {
+    const levels = LEVELS.filter(l => l.world === w.id);
+    const done = levels.filter(l => save.levels[l.id]).length;
+    const pct = Math.round((done / levels.length) * 100);
+    const detail = levels.map(l => {
+      const r = save.levels[l.id];
+      return `Lv ${l.id} ${r ? "⭐".repeat(r.stars) : (l.id <= save.unlocked ? "▶" : "🔒")}`;
+    }).join(" · ");
+    html += `
+      <div class="world-progress">
+        <div class="wp-head"><span>${w.icon} ${w.name}</span><span>${pct}%</span></div>
+        <div class="wp-bar"><div style="width:${pct}%"></div></div>
+        <div class="wp-levels">${detail}</div>
+      </div>`;
+  });
+  html += `
+    <p>📘 Pelajaran FPB: <b>${save.tutorials.fpb ? "Selesai ✅" : "Belum"}</b> &nbsp; 📗 Pelajaran KPK: <b>${save.tutorials.kpk ? "Selesai ✅" : "Belum"}</b></p>
+    <div class="reset-row"><button class="btn btn-danger btn-small" id="btn-reset">🗑️ Ulang dari awal</button></div>`;
+  $("#progress-box").innerHTML = html;
+  $("#btn-reset").onclick = () => showModal({
+    icon: "🤔", title: "Ulang dari awal?",
+    text: "Semua bintang, koin, dan lencana akan dihapus.",
+    buttons: [
+      { label: "Tidak jadi", cls: "btn-light" },
+      {
+        label: "Ya, ulang", cls: "btn-danger", onClick: () => {
+          const keep = { avatar: save.avatar, sound: save.sound };
+          save = { ...defaultSave(), ...keep };
+          saveGame(); renderProgress(); updateTopbar();
+        },
+      },
+    ],
+  });
+}
+
+
+/* =========================================================
+   10. KOMPONEN VISUAL
+   ========================================================= */
+/** Tumpukan benda, contoh: 12 apel */
+function pileHTML(emoji, n) {
+  return `<div class="pile">
+    <div class="pile-items ${n > 16 ? "many" : ""}">${emojis(emoji, n)}</div>
+    <div class="pile-count">${n} ${emoji}</div></div>`;
+}
+function friendsHTML(k) {
+  let h = "";
+  for (let i = 0; i < k; i++) h += `<span>${FRIENDS[i % FRIENDS.length]}</span>`;
+  return h;
+}
+/**
+ * Membagi benda ke k kelompok. parts = [{emoji, n}, ...]
+ * mode "friend" = label teman, selain itu label keranjang.
+ */
+function groupsHTML(parts, k, mode) {
+  let html = `<div class="groups">`;
+  for (let g = 1; g <= k; g++) {
+    const label = mode === "friend" ? `${FRIENDS[(g - 1) % FRIENDS.length]} ${g}` : `🧺 ${g}`;
+    html += `<div class="group" style="animation-delay:${g * 0.06}s">
+      <div class="group-label">${label}</div>
+      <div class="group-items">${parts.map(p => emojis(p.emoji, Math.floor(p.n / k))).join("")}</div>
+    </div>`;
+  }
+  html += `</div>`;
+  const left = parts.filter(p => p.n % k !== 0);
+  if (left.length) {
+    html += `<div class="leftover">Sisa: ${left.map(p => `${emojis(p.emoji, p.n % k)} (${p.n % k})`).join(" &nbsp; ")} 😮</div>`;
+  } else {
+    html += `<div class="no-left">Tidak ada sisa! ✅</div>`;
+  }
+  return html;
+}
+
+/**
+ * Garis bilangan dengan dua hewan yang melompat.
+ * cfg: { a, b, max, animalA, animalB, onMeet(n) }
+ * Mengembalikan { jump, reset, playToMeet, isMet }
+ */
+function createNumberLine(container, cfg) {
+  const cell = window.innerWidth < 600 ? 38 : 46;
+  const wrap = el("div", "nl-wrap");
+  const line = el("div", "nl");
+  line.style.setProperty("--cell", cell + "px");
+  line.style.width = (cfg.max + 1) * cell + "px";
+
+  const laneA = el("div", "nl-lane lane-a");
+  const ticks = el("div", "nl-ticks");
+  const laneB = el("div", "nl-lane lane-b");
+  for (let n = 0; n <= cfg.max; n++) ticks.appendChild(el("div", "nl-tick", String(n)));
+
+  const aniA = el("div", "nl-animal", `<span>${cfg.animalA.emoji}</span>`);
+  const aniB = el("div", "nl-animal", `<span>${cfg.animalB.emoji}</span>`);
+  laneA.appendChild(aniA);
+  laneB.appendChild(aniB);
+  line.append(laneA, ticks, laneB);
+  wrap.appendChild(line);
+  const lists = el("div", "nl-lists");
+  container.append(wrap, lists);
+
+  let pa = 0, pb = 0, met = false;
+  let visitedA = [], visitedB = [];
+
+  function place() {
+    aniA.style.left = pa * cell + "px";
+    aniB.style.left = pb * cell + "px";
+  }
+  function addMark(lane, n) {
+    const m = el("div", "nl-mark");
+    m.style.left = n * cell + "px";
+    lane.appendChild(m);
+  }
+  function hop(ani) {
+    const span = ani.firstChild;
+    span.classList.remove("hop");
+    void span.offsetWidth;
+    span.classList.add("hop");
+  }
+  function updateLists() {
+    const common = visitedA.filter(v => visitedB.includes(v));
+    lists.innerHTML = `
+      <div>${cfg.animalA.emoji} <b>Kelipatan ${cfg.a}:</b> ${visitedA.length ? chips(visitedA, common) : "-"}</div>
+      <div>${cfg.animalB.emoji} <b>Kelipatan ${cfg.b}:</b> ${visitedB.length ? chips(visitedB, common) : "-"}</div>`;
+  }
+  function jump() {
+    if (met) return;
+    // Yang tertinggal melompat lebih dulu, supaya mereka bertemu di KPK
+    if (pa <= pb) {
+      pa += cfg.a; visitedA.push(pa); addMark(laneA, pa); hop(aniA);
+      ticks.children[pa].classList.add("land-a");
+    } else {
+      pb += cfg.b; visitedB.push(pb); addMark(laneB, pb); hop(aniB);
+      ticks.children[pb].classList.add("land-b");
+    }
+    place();
+    Sound.play("hop");
+    wrap.scrollTo({ left: Math.max(0, Math.max(pa, pb) * cell - wrap.clientWidth / 2), behavior: "smooth" });
+    updateLists();
+    if (pa === pb) {
+      met = true;
+      ticks.children[pa].classList.add("meet");
+      if (cfg.onMeet) cfg.onMeet(pa);
+    }
+  }
+  function reset() {
+    pa = 0; pb = 0; met = false; visitedA = []; visitedB = [];
+    line.querySelectorAll(".nl-mark").forEach(m => m.remove());
+    ticks.querySelectorAll(".nl-tick").forEach(t => t.classList.remove("meet", "land-a", "land-b"));
+    place(); updateLists();
+    wrap.scrollTo({ left: 0 });
+  }
+  function playToMeet() {
+    const timer = setInterval(() => {
+      if (met || !document.body.contains(wrap)) { clearInterval(timer); return; }
+      jump();
+    }, 450);
+  }
+  place(); updateLists();
+  return { jump, reset, playToMeet, isMet: () => met };
+}
+
+/** Garis bilangan + tombol Lompat & Ulang */
+function numberLineWithControls(container, cfg) {
+  const box = el("div", "line-box");
+  const controls = el("div", "line-controls");
+  const jumpBtn = el("button", "btn btn-secondary", "🐾 Lompat!");
+  const resetBtn = el("button", "btn btn-light", "↺ Ulang");
+  controls.append(jumpBtn, resetBtn);
+  container.append(box, controls);
+  const nl = createNumberLine(box, cfg);
+  jumpBtn.onclick = () => nl.jump();
+  resetBtn.onclick = () => { Sound.play("click"); nl.reset(); };
+  return nl;
+}
+
+function resolveAnimal(key, fallback) {
+  if (typeof key === "string") return ANIMALS[key] || fallback;
+  return key || fallback;
+}
+
+
+/* =========================================================
+   11. JENIS SOAL
+   Setiap fungsi menggambar soal lalu mengembalikan
+   array 3 petunjuk (fungsi yang menghasilkan HTML).
+   ui = { story, visual, preview, answers, correct(), wrong(), say() }
+   ========================================================= */
+const QUESTION_TYPES = {
+
+  /* ----- Bisakah dibagi rata? ----- */
+  bagi(q, ui) {
+    const n = q.total, k = q.groups;
+    const it = q.item || "🍬", name = q.itemName || "permen";
+    const canShare = n % k === 0;
+    ui.story.innerHTML = `
+      <p>Ada <span class="num">${n}</span> ${name} ${it}.</p>
+      <p>Mau dibagi rata ke <span class="num">${k}</span> teman.</p>
+      <p class="ask">Bisakah semua teman dapat sama banyak, tanpa sisa?</p>`;
+    ui.visual.innerHTML = pileHTML(it, n) + `<div class="friends">${friendsHTML(k)}</div>`;
+    const share = () => groupsHTML([{ emoji: it, n }], k, "friend");
+    const explain = canShare
+      ? `<p>${n} ÷ ${k} = <b>${n / k}</b></p><p>Tiap teman dapat ${n / k} ${it}. Tidak ada sisa!</p>`
+      : `<p>${n} ÷ ${k} = ${Math.floor(n / k)} <b>sisa ${n % k}</b></p><p>Ada ${it} yang tersisa, jadi tidak bisa dibagi rata.</p>`;
+
+    choiceButtons(ui.answers, [{ label: "✅ Bisa", value: true }, { label: "❌ Tidak bisa", value: false }], (v, btn) => {
+      ui.preview.innerHTML = `<p class="preview-title">Ayo kita bagikan satu per satu:</p>` + share();
+      if (v === canShare) { btn.classList.add("right"); ui.correct(explain); }
+      else {
+        btn.disabled = true; btn.classList.add("wrongpick");
+        ui.wrong(canShare ? "Lihat! Ternyata semua teman dapat sama banyak." : "Lihat! Ternyata masih ada yang tersisa.");
       }
     });
-  });
-}
-function renderChooseCompute(q, stage){
-  game.answered = false; game.hintStep = 0;
-  const compQ = makeQuestion(q.op, [q.a, q.b]);
-  compQ.story = false;
-  // render sebagai soal KPK/FPB biasa, tapi jawaban tetap ke handler yang menyelesaikan soal ini
-  if(q.op==='KPK') renderKPKQuestion(compQ, stage);
-  else renderFPBQuestion(compQ, stage);
-}
+    return [
+      () => `Bagi rata artinya setiap teman dapat <b>sama banyak</b>. Tidak boleh ada sisa.`,
+      () => `Bayangkan kamu membagi ${it} satu per satu ke ${k} teman sampai habis. Apakah ada yang tersisa?`,
+      () => `Lihat cara membaginya:${share()}`,
+    ];
+  },
 
-/* ---- Wire pilihan jawaban numerik ---- */
-function wireAnswer(stage, q){
-  stage.querySelectorAll('.options .opt').forEach(btn=>{
-    btn.addEventListener('click', ()=>onAnswer(btn, q, stage));
-  });
-  const hintBtn = stage.querySelector('.hint-btn');
-  if(hintBtn) hintBtn.addEventListener('click', ()=>showHint(q));
-}
+  /* ----- Pilih semua faktor ----- */
+  faktor(q, ui) { return renderMultiSelect(q, ui, "faktor"); },
 
-function onAnswer(btn, q, stage){
-  if(game.answered) return;
-  const val = +btn.dataset.val;
-  const fb = document.getElementById('fb');
-  if(val===q.answer){
-    game.answered = true;
-    btn.classList.add('correct');
-    stage.querySelectorAll('.opt').forEach(b=>b.disabled=true);
-    sfx.correct();
-    // skor
-    let gained = 10;
-    game.streak++;
-    if(game.streak>=2){ gained += 5; }
-    game.sessionPoints += gained;
-    game.correct++;
-    fb.innerHTML = `🎉 Benar! Kamu hebat! <b>+${gained} poin</b>`;
-    fb.className = 'feedback good';
-    updateGameHud();
-    setTimeout(nextQuestion, 1100);
-  }else{
-    btn.classList.add('wrong');
-    btn.disabled = true;
-    game.streak = 0;
-    sfx.wrong();
-    loseLife();
-    fb.textContent = randMsg(['Hampir benar! Yuk lihat lompatannya lagi.','Belum tepat. Coba lihat petunjuknya! 💡','Coba lagi, kamu pasti bisa!']);
-    fb.className = 'feedback bad';
-  }
-}
-function randMsg(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+  /* ----- Pilih semua kelipatan ----- */
+  kelipatan(q, ui) { return renderMultiSelect(q, ui, "kelipatan"); },
 
-function loseLife(){
-  if(!state.livesOn) return;
-  game.lives = Math.max(0, game.lives-1);
-  updateGameHud();
-  if(game.lives<=0){
-    // mini challenge pemulihan: beri kesempatan lanjut (jangan menghukum keras)
-    game.lives = 1;
-    updateGameHud();
-    toast('Semangat! Nyawa dipulihkan 💪❤️');
-  }
-}
+  /* ----- Lompatan yang hilang ----- */
+  lompat(q, ui) {
+    const s = q.step, count = q.count || 4;
+    const miss = Math.min(q.missing || count, count);
+    const A = resolveAnimal(q.animal, ANIMALS.kelinci);
+    const ans = s * miss, prev = s * (miss - 1);
+    const seq = [];
+    for (let i = 1; i <= count; i++) seq.push(i * s);
 
-/* ---- HINT bertahap ---- */
-function showHint(q){
-  const area = document.getElementById('hintArea');
-  const isKPK = q.kind==='KPK';
-  const hints = isKPK ? [
-    `Coba tulis kelipatan dari <b>${q.a}</b>: ${multiplesUpTo(q.a,5).join(', ')}...`,
-    `Sekarang kelipatan dari <b>${q.b}</b>: ${multiplesUpTo(q.b,5).join(', ')}...`,
-    `Cari angka <b>sama yang paling kecil</b>. Jawabannya <b>${q.answer}</b>! 😊`,
-  ] : [
-    `Faktor <b>${q.a}</b>: ${factorsOf(q.a).join(', ')}`,
-    `Faktor <b>${q.b}</b>: ${factorsOf(q.b).join(', ')}`,
-    `Cari angka <b>sama yang paling besar</b>. Jawabannya <b>${q.answer}</b>! 😊`,
-  ];
-  if(game.hintStep >= hints.length){ toast('Semua petunjuk sudah keluar 😊'); return; }
-  sfx.click();
-  let box = area.querySelector('.hint-box');
-  if(!box){ box = document.createElement('div'); box.className='hint-box'; area.appendChild(box); }
-  const p = document.createElement('p');
-  p.innerHTML = `💡 ${hints[game.hintStep]}`;
-  box.appendChild(p);
-  game.hintStep++;
-}
+    ui.story.innerHTML = `
+      <p>${A.emoji} <b>${A.name}</b> selalu melompat <span class="num">${s}</span> langkah.</p>
+      <p class="ask">Angka berapa yang hilang? ❓</p>`;
+    const draw = solved => {
+      let h = `<div class="stones">`;
+      for (let i = 0; i <= count; i++) {
+        const hidden = i === miss && !solved;
+        const animalHere = solved ? i === miss : i === miss - 1;
+        if (i > 0) h += `<div class="hop-arrow">+${s}</div>`;
+        h += `<div class="stone ${hidden ? "mystery" : ""} ${solved && i === miss ? "solved" : ""}">
+          ${animalHere ? `<span class="stone-animal ${solved ? "hop" : ""}">${A.emoji}</span>` : ""}
+          <span>${hidden ? "❓" : i * s}</span></div>`;
+      }
+      ui.visual.innerHTML = h + `</div>`;
+    };
+    draw(false);
 
-function nextQuestion(){
-  game.qi++;
-  if(game.qi >= game.questions.length){ finishGame(); return; }
-  renderQuestion();
-}
-
-/* ============================================================
-   SELESAI GAME → hitung bintang, simpan, badge
-   ============================================================ */
-function finishGame(){
-  document.getElementById('gameProgressBar').style.width = '100%';
-  const total = game.questions.length;
-  const ratio = game.correct/total;
-  let stars = 1;
-  if(ratio>=0.99) stars = 3;
-  else if(ratio>=0.6) stars = 2;
-
-  let earnedBadges = [];
-
-  if(game.mode==='level'){
-    const idx = game.levelIndex;
-    // tambah poin sesi
-    state.points += game.sessionPoints;
-    // bonus selesai level +20
-    state.points += 20;
-    game.sessionPoints += 20;
-    // bonus 3 bintang +30
-    if(stars===3){ state.points += 30; game.sessionPoints += 30; }
-    // simpan bintang terbaik
-    if(!state.stars[idx] || stars>state.stars[idx]) state.stars[idx] = stars;
-    state.cleared[idx] = true;
-    earnedBadges = evaluateBadges();
-    saveProgress();
-  }else{
-    // challenge
-    state.points += game.sessionPoints;
-    if(game.sessionPoints > state.bestChallenge) state.bestChallenge = game.sessionPoints;
-    earnedBadges = evaluateBadges();
-    saveProgress();
-  }
-
-  showResult(stars, game.sessionPoints, earnedBadges);
-}
-
-function evaluateBadges(){
-  const newly = [];
-  BADGES.forEach(b=>{
-    if(!state.badges[b.id] && b.check(state)){
-      state.badges[b.id] = true;
-      newly.push(b);
-    }
-  });
-  return newly;
-}
-
-/* ============================================================
-   RESULT SCREEN
-   ============================================================ */
-function showResult(stars, points, newBadges){
-  show('result');
-  const starsEl = document.getElementById('resultStars');
-  starsEl.textContent = '';
-  document.getElementById('resultScore').textContent = points;
-
-  const titles = {3:'Hebat sekali! 🏆',2:'Bagus! Sedikit lagi! 😊',1:'Terus berlatih! 💪'};
-  document.getElementById('resultTitle').textContent = titles[stars];
-  document.getElementById('resultMsg').textContent =
-    stars===3 ? 'Semua jawaban benar!' : `Kamu benar ${game.correct} dari ${game.questions.length} soal.`;
-
-  // badges baru
-  const bWrap = document.getElementById('resultBadges');
-  bWrap.innerHTML = newBadges.map(b=>`<span class="rb">${b.ico} ${b.name}!</span>`).join('');
-
-  // animasi bintang bertahap: tampilkan 3 slot, isi bintang emas satu per satu
-  sfx.win();
-  const slots = ['☆','☆','☆'];
-  starsEl.textContent = slots.join('');
-  let i = 0;
-  const iv = setInterval(()=>{
-    if(i < stars){ slots[i] = '⭐'; sfx.star(); }
-    starsEl.textContent = slots.join('');
-    i++;
-    if(i >= 3){ clearInterval(iv); }
-  }, 360);
-
-  if(stars>=2) confetti();
-  if(newBadges.length) setTimeout(()=>toast(`Badge baru: ${newBadges.map(b=>b.name).join(', ')}! 🏆`, 2600), 800);
-
-  // tombol lanjut
-  const nextBtn = document.getElementById('resultNext');
-  if(game.mode==='level'){
-    const next = game.levelIndex+1;
-    if(next < TOTAL_LEVELS){
-      nextBtn.textContent = 'Level Berikutnya ›';
-      nextBtn.onclick = ()=>{ sfx.click(); startLevel(next); };
-    }else{
-      nextBtn.textContent = 'Selesai! 🎉';
-      nextBtn.onclick = ()=>{ sfx.click(); show('levelselect'); };
-    }
-    document.getElementById('resultReplay').onclick = ()=>{ sfx.click(); startLevel(game.levelIndex); };
-  }else{
-    nextBtn.textContent = 'Ke Menu ›';
-    nextBtn.onclick = ()=>{ sfx.click(); show('menu'); };
-    document.getElementById('resultReplay').onclick = ()=>{ sfx.click(); startChallenge(); };
-  }
-}
-
-function confetti(){
-  const box = document.getElementById('confetti');
-  box.innerHTML = '';
-  const colors = ['#ffd23f','#ff5ea8','#39b7ff','#2ecc71','#ff9d2e','#7c4dff'];
-  for(let i=0;i<40;i++){
-    const c = document.createElement('i');
-    c.style.left = Math.random()*100+'%';
-    c.style.background = colors[i%colors.length];
-    c.style.animationDuration = (1.5+Math.random()*1.5)+'s';
-    c.style.animationDelay = (Math.random()*0.5)+'s';
-    box.appendChild(c);
-  }
-  setTimeout(()=>box.innerHTML='', 3200);
-}
-
-/* ============================================================
-   RENDER: REWARD / BADGE
-   ============================================================ */
-function renderReward(){
-  const grid = document.getElementById('badgeGrid');
-  grid.innerHTML = BADGES.map(b=>{
-    const got = !!state.badges[b.id];
-    return `<div class="badge-card ${got?'earned':''}">
-      <div class="bc-ico">${b.ico}</div>
-      <div class="bc-name">${got?b.name:'???'}</div>
-      <div class="bc-desc">${b.desc}${got?' ✅':''}</div>
-    </div>`;
-  }).join('');
-}
-
-/* ============================================================
-   RENDER: PROGRESS
-   ============================================================ */
-function renderProgress(){
-  const cleared = levelsCleared();
-  document.getElementById('prgLevel').textContent = `${cleared} / ${TOTAL_LEVELS}`;
-  document.getElementById('prgLevelBar').style.width = (cleared/TOTAL_LEVELS*100)+'%';
-  document.getElementById('prgPoints').textContent = state.points;
-  document.getElementById('prgStars').textContent = totalStars();
-  document.getElementById('prgBadges').textContent = `${badgeCount()}/${BADGES.length}`;
-  document.getElementById('prgBest').textContent = state.bestChallenge;
-  const track = document.getElementById('prgStarTrack');
-  track.innerHTML = LEVELS.map((_,i)=>{
-    const s = state.stars[i]||0;
-    return `<span class="st-item">L${i+1} ${s>0?'⭐'.repeat(s):'–'}</span>`;
-  }).join('');
-}
-
-/* ============================================================
-   RENDER: SETTINGS
-   ============================================================ */
-function renderSettings(){
-  document.getElementById('setSound').classList.toggle('on', state.sound);
-  document.getElementById('setLives').classList.toggle('on', state.livesOn);
-  syncAudioIcon();
-}
-function syncAudioIcon(){
-  document.getElementById('audioIcon').textContent = state.sound ? '🔊' : '🔇';
-}
-
-/* ============================================================
-   EVENT WIRING
-   ============================================================ */
-function init(){
-  // Tombol data-go
-  document.querySelectorAll('[data-go]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{ ensureAudio(); sfx.click(); show(btn.dataset.go); });
-  });
-  // Tombol data-action
-  document.querySelectorAll('[data-action]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      ensureAudio(); sfx.click();
-      const a = btn.dataset.action;
-      if(a==='tutorial-kpk') openTutorial('KPK');
-      else if(a==='tutorial-fpb') openTutorial('FPB');
-      else if(a==='challenge') startChallenge();
+    const options = q.choices || pickChoices(ans, [], [ans - 1, ans + 1, ans + s, ans - s + 1, ans + 2], 4);
+    choiceButtons(ui.answers, options, (v, btn) => {
+      if (v === ans) {
+        btn.classList.add("right");
+        draw(true);
+        ui.correct(`<p>${prev} + ${s} = <b>${ans}</b></p>
+          <p>${chips(seq)}</p>
+          <p class="concept">Angka-angka ini disebut kelipatan ${s}.</p>`);
+      } else {
+        btn.disabled = true; btn.classList.add("wrongpick");
+        ui.wrong(`${A.name} selalu melompat <b>${s}</b> langkah. Coba hitung lagi dari ${prev}.`);
+      }
     });
-  });
+    return [
+      () => `${A.emoji} ${A.name} selalu lompat <b>${s}</b> langkah. Lihat tanda <b>+${s}</b> di antara batu.`,
+      () => `Angka sebelum ❓ adalah <b>${prev}</b>.`,
+      () => `<span class="calc">${prev} + ${s} = ❓</span>`,
+    ];
+  },
 
-  // Tutorial nav
-  document.getElementById('tutNext').addEventListener('click', ()=>{
-    sfx.click();
-    if(tutState.step < tutState.steps.length-1){ tutState.step++; renderTutStep(); }
-    else{
-      // selesai tutorial → mulai level pertama dari tipe terkait, atau level select
-      show('levelselect');
-      toast('Yuk pilih level dan mulai bermain! 🎮');
+  /* ----- FPB: keranjang paling banyak ----- */
+  fpb(q, ui) {
+    const a = q.a, b = q.b, ans = gcd(a, b);
+    const iA = q.itemA || "🍎", nA = q.nameA || "apel";
+    const iB = q.itemB || "🍊", nB = q.nameB || "jeruk";
+    const who = q.person || "Rani";
+    const parts = [{ emoji: iA, n: a }, { emoji: iB, n: b }];
+    const fa = factorsOf(a), fb = factorsOf(b);
+    const common = fa.filter(v => fb.includes(v));
+
+    ui.story.innerHTML = `
+      <p><b>${who}</b> punya <span class="num">${a}</span> ${nA} ${iA} dan <span class="num">${b}</span> ${nB} ${iB}.</p>
+      <p>Semuanya dimasukkan ke keranjang 🧺. Isi tiap keranjang harus <b>sama</b> dan <b>tidak ada sisa</b>.</p>
+      <p class="ask">Berapa keranjang paling banyak?</p>`;
+    ui.visual.innerHTML = pileHTML(iA, a) + pileHTML(iB, b);
+
+    const small = Math.min(a, b);
+    const priority = shuffle(common.filter(v => v !== ans)).slice(0, 2);
+    const pool = [...fa, ...fb, ans + 1, ans * 2].filter(v => v <= small);
+    const options = q.choices || pickChoices(ans, priority, pool, 6);
+
+    choiceButtons(ui.answers, options, (v, btn) => {
+      if (v === ans) {
+        btn.classList.add("right");
+        ui.preview.innerHTML = `<p class="preview-title">${ans} keranjang:</p>` + groupsHTML(parts, ans);
+        ui.correct(`<p>${a} dan ${b} bisa dibagi menjadi <b>${ans}</b> kelompok yang sama.</p>
+          <p>Tiap keranjang: ${a / ans} ${iA} dan ${b / ans} ${iB}.</p>
+          <p class="concept">FPB dari ${a} dan ${b} adalah ${ans}.</p>`);
+      } else {
+        btn.disabled = true; btn.classList.add("wrongpick");
+        ui.preview.innerHTML = `<p class="preview-title">Kalau ${v} keranjang:</p>` + groupsHTML(parts, v);
+        if (a % v === 0 && b % v === 0) {
+          ui.wrong(`${v} keranjang bisa, tidak ada sisa! 👍<br>Tapi, apakah bisa <b>lebih banyak</b> keranjang?`);
+        } else {
+          ui.wrong(`Kalau ${v} keranjang, masih ada <b>sisa</b>.`);
+        }
+      }
+    });
+
+    const s = common.find(v => v > 1) || 1;
+    return [
+      () => `Yuk, cari angka yang bisa membagi <b>${a}</b> dan <b>${b}</b> tanpa sisa.`,
+      () => `Apakah <b>${s}</b> bisa membagi kedua angka tanpa sisa?<br>
+             <span class="calc">${divText(a, s)}<br>${divText(b, s)}</span><br>
+             Bisa! Sekarang coba angka yang <b>lebih besar</b>.`,
+      () => `<p>Faktor ${a}: ${chips(fa, common)}</p>
+             <p>Faktor ${b}: ${chips(fb, common)}</p>
+             <p>Angka kuning ada di kedua daftar. Pilih yang <b>paling besar</b>!</p>`,
+    ];
+  },
+
+  /* ----- KPK: di mana mereka bertemu? ----- */
+  kpk(q, ui) {
+    const a = q.a, b = q.b, ans = lcm(a, b);
+    const A = resolveAnimal(q.animalA, ANIMALS.kelinci);
+    const B = resolveAnimal(q.animalB, ANIMALS.katak);
+    ui.story.innerHTML = `
+      <p>${A.emoji} <b>${A.name}</b> melompat <span class="num">${a}</span> langkah.</p>
+      <p>${B.emoji} <b>${B.name}</b> melompat <span class="num">${b}</span> langkah.</p>
+      <p class="small">Mereka mulai dari angka 0.</p>
+      <p class="ask">Di angka berapa mereka pertama kali bertemu?</p>`;
+
+    let line = null;
+    const showLine = () => {
+      if (line) return;
+      ui.visual.innerHTML = "";
+      line = numberLineWithControls(ui.visual, {
+        a, b, max: ans + Math.max(a, b), animalA: A, animalB: B,
+        onMeet: n => ui.say(run.answered
+          ? `💥 Lihat! Mereka bertemu di angka <b>${n}</b>!`
+          : `💥 Mereka bertemu! Di angka berapa? Pilih jawabannya 👇`),
+      });
+    };
+    if (q.showLine === false) {
+      ui.visual.innerHTML = `<div class="duo"><span class="bounce">${A.emoji}</span><span class="vs">🤝</span><span class="bounce d2">${B.emoji}</span></div>`;
+    } else {
+      showLine();
+      ui.say(`Tekan <b>🐾 Lompat!</b> untuk melihat mereka melompat.`);
     }
-  });
-  document.getElementById('tutPrev').addEventListener('click', ()=>{
-    sfx.click();
-    if(tutState.step>0){ tutState.step--; renderTutStep(); }
-  });
 
-  // Game quit
-  document.getElementById('gameQuit').addEventListener('click', ()=>{
-    sfx.click();
-    if(confirm('Keluar dari permainan? Progress soal ini tidak disimpan.')){
-      show(game && game.mode==='challenge' ? 'menu' : 'levelselect');
+    const pool = [a * b, ans + a, ans + b, a + b, ans * 2, ans - 1, ans + 1];
+    const options = q.choices || pickChoices(ans, [], pool, 4);
+    choiceButtons(ui.answers, options, (v, btn) => {
+      if (v === ans) {
+        btn.classList.add("right");
+        if (line && !line.isMet()) line.playToMeet();
+        ui.correct(`<p>🎉 Mereka bertemu di angka <b>${ans}</b>!</p>
+          <p>Kelipatan ${a}: ${chips(multiplesOf(a, ans), [ans])}</p>
+          <p>Kelipatan ${b}: ${chips(multiplesOf(b, ans), [ans])}</p>
+          <p class="concept">KPK dari ${a} dan ${b} adalah ${ans}.</p>`);
+      } else {
+        btn.disabled = true; btn.classList.add("wrongpick");
+        const inA = v % a === 0, inB = v % b === 0;
+        let msg;
+        if (inA && inB) msg = `${v} memang tempat bertemu, tapi bukan yang <b>pertama</b>. Ada yang lebih kecil!`;
+        else if (inA) msg = `${A.emoji} mendarat di ${v}, tapi ${B.emoji} tidak.`;
+        else if (inB) msg = `${B.emoji} mendarat di ${v}, tapi ${A.emoji} tidak.`;
+        else msg = `${A.emoji} dan ${B.emoji} tidak mendarat di ${v}.`;
+        ui.wrong(msg);
+      }
+    });
+    return [
+      () => `Yuk, tulis kelipatan <b>${a}</b>:<br>${chips(multiplesOf(a, ans + a))} ...`,
+      () => `Sekarang tulis kelipatan <b>${b}</b>:<br>${chips(multiplesOf(b, ans + b))} ...`,
+      () => {
+        const wasHidden = !line;
+        showLine();
+        return `Mana angka yang <b>pertama kali</b> muncul di kedua daftar?
+          <p>${A.emoji} ${chips(multiplesOf(a, ans + a))}</p>
+          <p>${B.emoji} ${chips(multiplesOf(b, ans + b))}</p>
+          ${wasHidden ? "Garis bilangan sudah muncul. Coba tekan 🐾 Lompat!" : ""}`;
+      },
+    ];
+  },
+};
+
+/** Soal "pilih semua" untuk faktor dan kelipatan */
+function renderMultiSelect(q, ui, mode) {
+  const n = q.number;
+  const isFaktor = mode === "faktor";
+  const max = isFaktor ? n : (q.max || n * 4);
+  const correctSet = isFaktor ? factorsOf(n) : multiplesOf(n, max);
+  const A = resolveAnimal(q.animal, ANIMALS.kelinci);
+
+  if (isFaktor) {
+    ui.story.innerHTML = `
+      <p class="ask">Pilih <b>semua</b> angka yang bisa membagi <span class="num">${n}</span> tanpa sisa.</p>
+      <p class="small">Angka-angka ini disebut faktor ${n}.</p>`;
+    ui.visual.innerHTML = pileHTML(q.item || "🍪", n);
+  } else {
+    ui.story.innerHTML = `
+      <p>${A.emoji} <b>${A.name}</b> melompat <span class="num">${n}</span> langkah terus-menerus dari 0.</p>
+      <p class="ask">Pilih <b>semua</b> angka tempat ${A.name} mendarat (sampai ${max}).</p>
+      <p class="small">Angka-angka ini disebut kelipatan ${n}.</p>`;
+    ui.visual.innerHTML = `<div class="big-emoji bounce">${A.emoji}</div>`;
+  }
+
+  const selected = new Set();
+  const grid = el("div", "tiles");
+  for (let v = 1; v <= max; v++) {
+    const t = el("button", "tile", String(v));
+    t.onclick = () => {
+      if (run.answered) return;
+      Sound.play("click");
+      if (selected.has(v)) { selected.delete(v); t.classList.remove("sel"); }
+      else { selected.add(v); t.classList.add("sel"); }
+    };
+    grid.appendChild(t);
+  }
+  const checkBtn = el("button", "btn btn-primary btn-check", "✔ Cek Jawaban");
+  ui.answers.innerHTML = "";
+  ui.answers.append(grid, checkBtn);
+
+  const explain = isFaktor
+    ? `<p>Faktor ${n}: ${chips(correctSet)}</p>
+       <div class="calc">${correctSet.map(f => `${n} ÷ ${f} = ${n / f}`).join("<br>")}</div>
+       <p>Semuanya tanpa sisa! ✅</p>`
+    : `<p>Kelipatan ${n}: ${chips(correctSet)}</p>
+       <p>Setiap kali ditambah ${n}, seperti ${A.name} yang melompat ${A.emoji}</p>`;
+
+  checkBtn.onclick = () => {
+    if (run.answered) return;
+    if (selected.size === 0) { ui.say("Pilih dulu angkanya, ya 😊"); return; }
+    const wrongSel = [...selected].filter(v => !correctSet.includes(v)).sort((x, y) => x - y);
+    const missing = correctSet.filter(v => !selected.has(v));
+    if (!wrongSel.length && !missing.length) {
+      grid.querySelectorAll(".tile.sel").forEach(t => t.classList.add("right"));
+      ui.correct(explain);
+      return;
     }
-  });
-
-  // Audio toggle (global)
-  document.getElementById('audioToggle').addEventListener('click', ()=>{
-    state.sound = !state.sound; saveProgress(); syncAudioIcon();
-    if(state.sound){ ensureAudio(); sfx.click(); }
-    toast(state.sound?'Suara dinyalakan 🔊':'Suara dimatikan 🔇');
-  });
-
-  // Settings toggles
-  document.getElementById('setSound').addEventListener('click', ()=>{
-    state.sound=!state.sound; saveProgress(); renderSettings();
-    if(state.sound){ ensureAudio(); sfx.click(); }
-  });
-  document.getElementById('setLives').addEventListener('click', ()=>{
-    sfx.click(); state.livesOn=!state.livesOn; saveProgress(); renderSettings();
-  });
-
-  // Reset progress
-  document.getElementById('resetProgress').addEventListener('click', ()=>{
-    if(confirm('Hapus semua progress dan mulai dari awal?')){
-      const keepSound = state.sound, keepLives = state.livesOn;
-      state = JSON.parse(JSON.stringify(defaultState));
-      state.sound = keepSound; state.livesOn = keepLives;
-      saveProgress(); renderProgress();
-      toast('Progress direset! Mulai petualangan baru 🚀');
+    let reason = "";
+    if (wrongSel.length) {
+      const w = wrongSel[0];
+      reason = isFaktor
+        ? `${w} tidak bisa membagi ${n} tanpa sisa (${n} ÷ ${w} = ${Math.floor(n / w)} sisa ${n % w}).`
+        : `${A.name} tidak mendarat di ${w}.`;
+      wrongSel.forEach(v => {
+        selected.delete(v);
+        const t = grid.children[v - 1];
+        t.classList.remove("sel");
+        shake(t);
+      });
     }
-  });
+    if (missing.length) reason += (reason ? "<br>" : "") + "Masih ada angka yang terlewat 🔍";
+    ui.wrong(reason);
+  };
 
-  // Unlock audio pada interaksi pertama
-  document.body.addEventListener('pointerdown', ()=>ensureAudio(), { once:true });
-
-  syncAudioIcon();
-  renderMenu();
-  show('splash');
+  if (isFaktor) {
+    const checks = [2, 3].filter(d => d < n).map(d => divText(n, d)).join("<br>");
+    return [
+      () => `Faktor ${n} = angka yang bisa membagi ${n} <b>tanpa sisa</b>. Angka <b>1</b> dan <b>${n}</b> pasti termasuk!`,
+      () => `Cek angka lain satu per satu. Misalnya: ${n} ÷ 2 = ? Ada sisa atau tidak?`,
+      () => `<span class="calc">${checks}</span><br>Sekarang cek angka lainnya sendiri, ya!`,
+    ];
+  }
+  return [
+    () => `Kelipatan ${n} = tempat ${A.name} mendarat kalau lompat ${n} langkah terus-menerus.`,
+    () => `Mulai dari <b>${n}</b>, lalu tambah ${n}, tambah ${n} lagi ...`,
+    () => `<span class="calc">${n} → ${n} + ${n} = ${2 * n} → ${2 * n} + ${n} = ${3 * n} → ...</span>`,
+  ];
 }
 
-document.addEventListener('DOMContentLoaded', init);
+
+/* =========================================================
+   12. MESIN PERMAINAN
+   ========================================================= */
+let run = null;          // data level yang sedang dimainkan
+let currentHints = [];   // 3 petunjuk untuk soal saat ini
+
+const gameUI = {
+  get story() { return $("#q-story"); },
+  get visual() { return $("#q-visual"); },
+  get preview() { return $("#q-preview"); },
+  get answers() { return $("#q-answers"); },
+  correct: html => onCorrect(html),
+  wrong: html => onWrong(html),
+  say: (html, type) => sayGuide(html, type),
+};
+
+function startLevel(id, skipTutorial) {
+  const level = LEVELS.find(l => l.id === id);
+  if (!level) return;
+
+  // Tutorial singkat sebelum pertama kali masuk dunia FPB / KPK
+  if (!skipTutorial && level.tutorial && !save.tutorials[level.tutorial]) {
+    const name = level.tutorial.toUpperCase();
+    showModal({
+      icon: "📚", title: "Belajar dulu, yuk!",
+      text: `Sebelum bermain, kita kenalan dengan <b>${name}</b> sebentar. Cuma 1 menit! 😊`,
+      buttons: [
+        { label: "📚 Ayo belajar", cls: "btn-primary", onClick: () => openTutorial(level.tutorial, id) },
+        { label: "Langsung main", cls: "btn-light", onClick: () => startLevel(id, true) },
+      ],
+    });
+    return;
+  }
+
+  run = { level, q: 0, points: 0, hints: 0, wrong: 0, qHints: 0, qWrong: 0, answered: false };
+  const world = WORLDS.find(w => w.id === level.world);
+  $("#game-world").textContent = `${world.icon} ${world.name}`;
+  $("#game-level").textContent = `Level ${level.id}: ${level.title}`;
+  $("#guide-avatar").textContent = CONFIG.guide.emoji;
+  showScreen("game");
+  renderQuestion();
+
+  if (level.intro) {
+    showModal({
+      icon: CONFIG.guide.emoji, title: level.title, text: level.intro,
+      buttons: [{ label: "Ayo mulai! ▶", cls: "btn-primary" }],
+    });
+  }
+}
+
+function renderQuestion() {
+  const questions = run.level.questions;
+  const q = questions[run.q];
+  run.qHints = 0; run.qWrong = 0; run.answered = false;
+
+  ["#q-story", "#q-visual", "#q-preview", "#q-answers", "#guide-msg", "#hint-box", "#feedback"]
+    .forEach(sel => { $(sel).innerHTML = ""; });
+  $("#q-count").textContent = `Soal ${run.q + 1} dari ${questions.length}`;
+  $("#q-bar-fill").style.width = (run.q / questions.length) * 100 + "%";
+  $("#run-points").textContent = run.points;
+
+  const hintBtn = $("#btn-hint");
+  hintBtn.disabled = false;
+  hintBtn.classList.remove("pulse");
+  hintBtn.textContent = "💡 Petunjuk (0/3)";
+
+  const render = QUESTION_TYPES[q.type];
+  if (!render) {
+    $("#q-story").innerHTML = `Jenis soal "${q.type}" tidak dikenal.`;
+    currentHints = [];
+    return;
+  }
+  currentHints = render(q, gameUI) || [];
+}
+
+function sayGuide(html, type = "info") {
+  $("#guide-msg").innerHTML = `
+    <div class="msg ${type} pop"><span class="msg-icon">${CONFIG.guide.emoji}</span><div>${html}</div></div>`;
+}
+
+function showHint() {
+  if (!run || run.answered || run.qHints >= currentHints.length) return;
+  const i = run.qHints;
+  run.qHints++; run.hints++; save.stats.hints++;
+  Sound.play("coin");
+  const card = el("div", "hint-card pop", `<span class="hint-title">💡 Petunjuk ${i + 1}</span>${currentHints[i]()}`);
+  $("#hint-box").appendChild(card);
+  const btn = $("#btn-hint");
+  btn.classList.remove("pulse");
+  btn.textContent = `💡 Petunjuk (${run.qHints}/3)`;
+  if (run.qHints >= currentHints.length) btn.disabled = true;
+  card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function onWrong(reason) {
+  if (run.answered) return;
+  run.qWrong++; run.wrong++; save.stats.wrong++;
+  Sound.play("wrong");
+  let html = `<b>Ups! Tidak apa-apa 😊</b><br>${reason}<br>Ayo kita coba bersama.`;
+  if (run.qWrong >= 2 && run.qHints < 3) {
+    html += `<br><b>Yuk gunakan petunjuk 💡</b>`;
+    $("#btn-hint").classList.add("pulse");
+  }
+  sayGuide(html, "oops");
+  shake($("#q-answers"));
+  saveGame();
+}
+
+function onCorrect(explainHtml) {
+  if (run.answered) return;
+  run.answered = true;
+  const noHint = run.qHints === 0;
+  const pts = noHint ? CONFIG.points.correctNoHint : CONFIG.points.correct;
+  run.points += pts;
+  save.stats.correct++;
+  saveGame();
+
+  $("#q-answers").querySelectorAll("button").forEach(b => { b.disabled = true; });
+  $("#btn-hint").disabled = true;
+  $("#btn-hint").classList.remove("pulse");
+  $("#guide-msg").innerHTML = "";
+  $("#run-points").textContent = run.points;
+  $("#q-bar-fill").style.width = ((run.q + 1) / run.level.questions.length) * 100 + "%";
+
+  const isLast = run.q === run.level.questions.length - 1;
+  const praise = CONFIG.praise[Math.floor(Math.random() * CONFIG.praise.length)];
+  $("#feedback").innerHTML = `
+    <div class="correct-card pop">
+      <div class="big">🎉 ${praise}</div>
+      <p>Kamu menemukan jawabannya!</p>
+      <div class="explain">${explainHtml}</div>
+      <div class="plus">+${pts} 🪙 ${noHint ? "<small>(tanpa petunjuk!)</small>" : ""}</div>
+      <button class="btn btn-primary btn-big" id="btn-next">${isLast ? "Lihat Hasil 🏁" : "Lanjut ▶"}</button>
+    </div>`;
+  $("#btn-next").onclick = () => { Sound.play("click"); nextQuestion(); };
+  Sound.play("correct");
+  confetti(16);
+  setTimeout(() => $("#feedback").scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+}
+
+function nextQuestion() {
+  run.q++;
+  if (run.q < run.level.questions.length) {
+    renderQuestion();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else {
+    finishLevel();
+  }
+}
+
+function finishLevel() {
+  const level = run.level;
+  const bonus = CONFIG.points.levelDone;
+  const total = run.points + bonus;
+  const help = run.hints + run.wrong;           // semakin sedikit bantuan, semakin banyak bintang
+  const stars = help === 0 ? 3 : help <= 3 ? 2 : 1;
+
+  const prev = save.levels[level.id];
+  save.levels[level.id] = {
+    stars: Math.max(stars, prev ? prev.stars : 0),
+    best: Math.max(total, prev ? prev.best : 0),
+  };
+  save.coins += total;
+  save.stats.played++;
+  if (run.hints === 0) save.flags.noHintLevel = true;
+  if (level.id >= save.unlocked && level.id < LEVELS.length) save.unlocked = level.id + 1;
+
+  const newBadges = checkBadges();
+  saveGame();
+  renderResult({ level, stars, points: run.points, bonus, total, newBadges });
+  showScreen("result");
+  Sound.play("win");
+  confetti(stars * 14);
+}
+
+function checkBadges() {
+  const fresh = BADGES.filter(b => !save.badges.includes(b.id) && b.check(save));
+  fresh.forEach(b => save.badges.push(b.id));
+  return fresh;
+}
+
+function renderResult(r) {
+  const next = LEVELS.find(l => l.id === r.level.id + 1);
+  const msg = r.stars === 3 ? "Luar biasa! Sempurna! 🥳" : r.stars === 2 ? "Hebat sekali! 👏" : "Bagus! Terus berlatih, ya! 💪";
+  const box = $("#result-box");
+  box.innerHTML = `
+    <div class="result-avatar bounce">${avatar().emoji}</div>
+    <h2>Level ${r.level.id} Selesai!</h2>
+    <div class="result-stars">
+      ${[1, 2, 3].map(i => `<span class="rs ${i <= r.stars ? "on" : ""}" style="animation-delay:${i * 0.25}s">⭐</span>`).join("")}
+    </div>
+    <p class="result-msg">${msg}</p>
+    <div class="result-table">
+      <div><span>✅ Jawaban benar</span><b>+${r.points}</b></div>
+      <div><span>🏁 Bonus level</span><b>+${r.bonus}</b></div>
+      <div class="total"><span>🪙 Koin didapat</span><b>+${r.total}</b></div>
+    </div>
+    ${r.newBadges.length ? `
+      <div class="new-badges"><p>🎁 Lencana baru!</p>
+        ${r.newBadges.map(b => `<div class="badge pop"><span class="b-icon">${b.icon}</span><b>${b.name}</b></div>`).join("")}
+      </div>` : ""}
+    ${next ? "" : `<p class="master-msg">🏆 Kamu sudah menamatkan semua level!<br>Kamu Master Matematika! 👑</p>`}
+    <div class="result-buttons">
+      ${next ? `<button class="btn btn-primary btn-big" id="res-next">▶ Level Berikutnya</button>` : ""}
+      <button class="btn btn-secondary" id="res-again">🔁 Main Lagi</button>
+      <button class="btn btn-light" data-go="map">🗺️ Peta Level</button>
+    </div>`;
+  if (next) $("#res-next").onclick = () => { Sound.play("click"); startLevel(next.id); };
+  $("#res-again").onclick = () => { Sound.play("click"); startLevel(r.level.id, true); };
+}
+
+
+/* =========================================================
+   13. TUTORIAL (Contoh → Anak mencoba → Feedback)
+   Setiap slide: { title, lock, render(body, ctl) }
+   lock: true -> tombol Lanjut aktif setelah ctl.unlock()
+   ========================================================= */
+const TUTORIALS = {
+  fpb: {
+    title: "🏰 Belajar FPB",
+    slides: [
+      {
+        title: "FPB itu apa?",
+        render(body) {
+          body.innerHTML = `
+            <div class="big-emoji bounce">${CONFIG.guide.emoji}</div>
+            <p class="big-text">FPB adalah angka <b>terbesar</b> yang bisa <b>membagi</b> dua angka <b>tanpa sisa</b>.</p>
+            <div class="letters">
+              <div class="letter"><b>F</b><small>Faktor<br>(pembagi)</small></div>
+              <div class="letter"><b>P</b><small>Persekutuan<br>(yang sama)</small></div>
+              <div class="letter"><b>B</b><small>Terbesar</small></div>
+            </div>`;
+        },
+      },
+      {
+        title: "Contoh 🍎🍊",
+        render(body) {
+          body.innerHTML = `
+            <p class="big-text">Rani punya <b>4</b> 🍎 dan <b>6</b> 🍊.</p>
+            <div class="q-visual">${pileHTML("🍎", 4)}${pileHTML("🍊", 6)}</div>
+            <p class="big-text">Rani mau membuat keranjang 🧺 yang isinya <b>sama</b>.</p>`;
+        },
+      },
+      {
+        title: "Coba 2 keranjang",
+        render(body) {
+          body.innerHTML = groupsHTML([{ emoji: "🍎", n: 4 }, { emoji: "🍊", n: 6 }], 2) +
+            `<p class="big-text">Tiap keranjang: 2 🍎 dan 3 🍊. <b>Bisa!</b> 👍</p>`;
+        },
+      },
+      {
+        title: "Coba 3 keranjang",
+        render(body) {
+          body.innerHTML = groupsHTML([{ emoji: "🍎", n: 4 }, { emoji: "🍊", n: 6 }], 3) +
+            `<p class="big-text">Ada 🍎 yang tersisa. <b>Tidak bisa!</b></p>`;
+        },
+      },
+      {
+        title: "Jadi ...",
+        render(body) {
+          body.innerHTML = `
+            <p class="big-text">Faktor 4: ${chips([1, 2, 4], [1, 2])}</p>
+            <p class="big-text">Faktor 6: ${chips([1, 2, 3, 6], [1, 2])}</p>
+            <p class="big-text">Yang sama: 1 dan 2. Paling besar: <b>2</b></p>
+            <p class="big-text">🎉 <b>FPB dari 4 dan 6 adalah 2</b></p>`;
+        },
+      },
+      {
+        title: "Sekarang kamu! ✋",
+        lock: true,
+        render(body, ctl) {
+          body.innerHTML = `
+            <p class="big-text">Ada <b>6</b> 🍎 dan <b>9</b> 🍊.<br>Berapa keranjang <b>paling banyak</b>?</p>
+            <div class="q-visual">${pileHTML("🍎", 6)}${pileHTML("🍊", 9)}</div>
+            <div class="q-answers" id="tut-choices"></div>
+            <div id="tut-preview"></div>
+            <div class="tut-msg" id="tut-msg"></div>`;
+          const parts = [{ emoji: "🍎", n: 6 }, { emoji: "🍊", n: 9 }];
+          choiceButtons($("#tut-choices"), [1, 2, 3, 6], (v, btn) => {
+            $("#tut-preview").innerHTML = groupsHTML(parts, v);
+            if (v === 3) {
+              btn.classList.add("right");
+              $("#tut-msg").innerHTML = "🎉 Hebat! 6 dan 9 bisa dibagi jadi 3 keranjang.<br>FPB dari 6 dan 9 adalah 3.";
+              $("#tut-choices").querySelectorAll("button").forEach(b => { b.disabled = true; });
+              Sound.play("correct"); confetti(14); ctl.unlock();
+            } else {
+              btn.disabled = true; btn.classList.add("wrongpick");
+              Sound.play("wrong");
+              $("#tut-msg").innerHTML = (6 % v === 0 && 9 % v === 0)
+                ? "Bisa! Tapi coba yang <b>lebih banyak</b> 😊"
+                : "Ups! Masih ada sisa. Coba lagi 😊";
+            }
+          });
+        },
+      },
+    ],
+  },
+
+  kpk: {
+    title: "🚀 Belajar KPK",
+    slides: [
+      {
+        title: "KPK itu apa?",
+        render(body) {
+          body.innerHTML = `
+            <div class="big-emoji bounce">${CONFIG.guide.emoji}</div>
+            <p class="big-text">KPK adalah kelipatan <b>terkecil</b> yang <b>sama</b>.</p>
+            <p class="big-text">Gampangnya: di angka berapa mereka <b>pertama kali bertemu</b>?</p>
+            <div class="letters">
+              <div class="letter"><b>K</b><small>Kelipatan<br>(lompatan)</small></div>
+              <div class="letter"><b>P</b><small>Persekutuan<br>(yang sama)</small></div>
+              <div class="letter"><b>K</b><small>Terkecil</small></div>
+            </div>`;
+        },
+      },
+      {
+        title: "Kelipatan itu apa?",
+        render(body) {
+          body.innerHTML = `
+            <p class="big-text">Kelipatan = hasil <b>lompat berulang</b>.</p>
+            <p class="big-text">🐰 lompat 2: ${chips([2, 4, 6, 8, 10])} ...</p>
+            <p class="big-text">🐸 lompat 3: ${chips([3, 6, 9, 12, 15])} ...</p>`;
+        },
+      },
+      {
+        title: "Ayo lompat! 🐾",
+        lock: true,
+        render(body, ctl) {
+          body.innerHTML = `
+            <p class="big-text">🐰 lompat <b>2</b>, 🐸 lompat <b>3</b>. Tekan <b>🐾 Lompat!</b></p>
+            <div class="q-visual" id="tut-line"></div>
+            <div class="tut-msg" id="tut-msg"></div>`;
+          numberLineWithControls($("#tut-line"), {
+            a: 2, b: 3, max: 9, animalA: ANIMALS.kelinci, animalB: ANIMALS.katak,
+            onMeet: n => {
+              $("#tut-msg").innerHTML = `🎉 Mereka bertemu di angka ${n}!`;
+              Sound.play("correct"); confetti(12); ctl.unlock();
+            },
+          });
+        },
+      },
+      {
+        title: "Jadi ...",
+        render(body) {
+          body.innerHTML = `
+            <p class="big-text">Kelipatan 2: ${chips([2, 4, 6, 8], [6])}</p>
+            <p class="big-text">Kelipatan 3: ${chips([3, 6, 9, 12], [6])}</p>
+            <p class="big-text">Pertama kali sama: <b>6</b></p>
+            <p class="big-text">🎉 <b>KPK dari 2 dan 3 adalah 6</b></p>`;
+        },
+      },
+      {
+        title: "Sekarang kamu! ✋",
+        lock: true,
+        render(body, ctl) {
+          body.innerHTML = `
+            <p class="big-text">🐰 lompat <b>3</b>, 🐸 lompat <b>4</b>.<br>Di angka berapa mereka <b>pertama kali</b> bertemu?</p>
+            <div class="q-visual" id="tut-line"></div>
+            <div class="q-answers" id="tut-choices"></div>
+            <div class="tut-msg" id="tut-msg"></div>`;
+          const nl = numberLineWithControls($("#tut-line"), {
+            a: 3, b: 4, max: 16, animalA: ANIMALS.kelinci, animalB: ANIMALS.katak,
+          });
+          choiceButtons($("#tut-choices"), [7, 12, 16, 24], (v, btn) => {
+            if (v === 12) {
+              btn.classList.add("right");
+              $("#tut-msg").innerHTML = "🎉 Hebat! Mereka bertemu di 12.<br>KPK dari 3 dan 4 adalah 12.";
+              $("#tut-choices").querySelectorAll("button").forEach(b => { b.disabled = true; });
+              if (!nl.isMet()) nl.playToMeet();
+              Sound.play("correct"); confetti(14); ctl.unlock();
+            } else {
+              btn.disabled = true; btn.classList.add("wrongpick");
+              Sound.play("wrong");
+              $("#tut-msg").innerHTML = v === 24
+                ? "24 memang bertemu, tapi bukan yang <b>pertama</b> 😊"
+                : "Ups! Coba lagi 😊 Tekan 🐾 Lompat! untuk melihat.";
+            }
+          });
+        },
+      },
+    ],
+  },
+};
+
+let tut = null;   // { id, i, returnLevel, canNext }
+
+function openTutorial(id, returnLevel) {
+  tut = { id, i: 0, returnLevel: returnLevel || null, canNext: true };
+  $("#tut-title").textContent = TUTORIALS[id].title;
+  showScreen("tutorial");
+  renderSlide();
+}
+
+function renderSlide() {
+  const t = TUTORIALS[tut.id];
+  const slide = t.slides[tut.i];
+  $("#tut-dots").innerHTML = t.slides.map((_, i) => `<span class="${i <= tut.i ? "on" : ""}"></span>`).join("");
+  $("#tut-slide-title").textContent = slide.title;
+  const body = $("#tut-body");
+  body.innerHTML = "";
+  body.classList.remove("pop"); void body.offsetWidth; body.classList.add("pop");
+  tut.canNext = !slide.lock;
+  slide.render(body, { unlock() { tut.canNext = true; updateTutNav(); } });
+  updateTutNav();
+}
+
+function updateTutNav() {
+  const t = TUTORIALS[tut.id];
+  const isLast = tut.i === t.slides.length - 1;
+  $("#tut-prev").style.visibility = tut.i === 0 ? "hidden" : "visible";
+  const next = $("#tut-next");
+  next.disabled = !tut.canNext;
+  next.textContent = !tut.canNext ? "Coba dulu, ya 😊" : isLast ? "Selesai 🎉" : "Lanjut ▶";
+}
+
+function finishTutorial() {
+  const id = tut.id;
+  save.tutorials[id] = true;
+  const newBadges = checkBadges();
+  saveGame();
+  Sound.play("win");
+  confetti(30);
+  const levelId = tut.returnLevel;
+  const badgeText = newBadges.length ? `<br>🎁 Lencana baru: <b>${newBadges.map(b => b.icon + " " + b.name).join(", ")}</b>` : "";
+  const buttons = levelId
+    ? [{ label: `▶ Main Level ${levelId}`, cls: "btn-primary", onClick: () => startLevel(levelId, true) }]
+    : [
+        { label: "🗺️ Ayo main!", cls: "btn-primary", onClick: () => go("map") },
+        { label: "📚 Kembali ke Belajar", cls: "btn-light", onClick: () => go("learn") },
+      ];
+  showModal({
+    icon: "🎓", title: "Pelajaran selesai!",
+    text: `Kamu sudah kenal <b>${id.toUpperCase()}</b>. Hebat! 🌟${badgeText}`,
+    buttons,
+  });
+}
+
+
+/* =========================================================
+   14. MULAI!
+   ========================================================= */
+function init() {
+  // Tombol navigasi umum: <button data-go="map">
+  document.addEventListener("click", e => {
+    const goBtn = e.target.closest("[data-go]");
+    if (goBtn) { Sound.play("click"); go(goBtn.dataset.go); return; }
+    const tutBtn = e.target.closest("[data-tutorial]");
+    if (tutBtn) { Sound.play("click"); openTutorial(tutBtn.dataset.tutorial, null); }
+  });
+
+  $("#btn-sound").onclick = () => {
+    save.sound = !save.sound;
+    saveGame(); updateTopbar(); Sound.play("click");
+  };
+  $("#btn-hint").onclick = showHint;
+
+  $("#game-exit").onclick = () => showModal({
+    icon: "🤔", title: "Keluar dari level?",
+    text: "Nilai di level ini belum tersimpan.",
+    buttons: [
+      { label: "Lanjut main", cls: "btn-primary" },
+      { label: "Keluar", cls: "btn-light", onClick: () => go("map") },
+    ],
+  });
+
+  $("#tut-prev").onclick = () => { if (tut.i > 0) { tut.i--; Sound.play("click"); renderSlide(); } };
+  $("#tut-next").onclick = () => {
+    if (!tut.canNext) return;
+    Sound.play("click");
+    if (tut.i < TUTORIALS[tut.id].slides.length - 1) { tut.i++; renderSlide(); }
+    else finishTutorial();
+  };
+  $("#tut-exit").onclick = () => go(tut && tut.returnLevel ? "map" : "learn");
+
+  go("home");
+}
+
+document.addEventListener("DOMContentLoaded", init);

@@ -1,62 +1,55 @@
-# 🎮 Petualangan KPK & FPB
+# 🌟 Petualangan FPB & KPK 🌟
 
-Game edukasi matematika untuk **anak SD kelas 3** dengan topik **KPK** (Kelipatan Persekutuan Terkecil) dan **FPB** (Faktor Persekutuan Terbesar), menggunakan pendekatan **GASING — Gampang, Asyik, Menyenangkan**.
+Game edukasi matematika untuk **anak SD kelas 3** (usia 8–9 tahun) yang mengajarkan
+**FPB (Faktor Persekutuan Terbesar)** dan **KPK (Kelipatan Persekutuan Terkecil)**
+dengan pendekatan **GASING** (Gampang, Asyik, Menyenangkan).
 
-## ✨ Fitur
+Anak belajar konsep lewat **permainan visual** — membagi buah ke keranjang untuk FPB,
+dan melihat dua hewan melompat sampai bertemu untuk KPK — bukan lewat rumus.
 
-- **Splash screen** & **Main Menu** warna-warni dengan maskot matematika (digambar murni pakai CSS).
-- **Tutorial interaktif KPK** — konsep "dua teman melompat sampai bertemu".
-- **Tutorial interaktif FPB** — konsep "membagi permen secara adil".
-- **15 level** bertahap:
-  - Level 1–3: pengenalan (angka kecil)
-  - Level 4–6: angka lebih besar
-  - Level 7–9: soal cerita (bus, tepuk tangan, permen)
-  - Level 10–12: campuran — anak memilih **KPK** atau **FPB** dulu
-  - Level 13–15: tantangan
-- **Mini game KPK** ("Lompat Sampai Bertemu") dengan visual lompatan 🐰🐢.
-- **Mini game FPB** ("Bagi Permen") dengan visual faktor 🍬.
-- **Mode Tantangan** — 8 soal acak campuran.
-- **Sistem skor**: +10 benar, +5 bonus beruntun, +20 selesai level, +30 kalau 3 bintang.
-- **Bintang** (⭐ maks 3 per level), **hint bertahap** 💡, **sistem nyawa** ❤️ (bisa dimatikan, tidak menghukum keras).
-- **Badge/Reward** 🏆, **halaman Progress** dengan progress bar.
-- **Audio** dibuat dengan Web Audio API (tanpa file suara) + tombol **🔊 on/off**.
-- **Progress tersimpan otomatis** di `localStorage`.
-- **Responsive**: HP, tablet, laptop, desktop.
+## ▶ Cara Menjalankan
+Cukup buka `index.html` di browser (Chrome, Edge, Safari, atau HP/tablet).
+Tidak butuh internet, server, database, atau instalasi apa pun.
 
-## 🚀 Cara Menjalankan
+## 🎮 Isi Game
+- **5 dunia, 15 level**, terbuka bertahap.
+- **Tutorial FPB & KPK** yang muncul otomatis sebelum dunia terkait.
+- **Sistem petunjuk 3 tingkat** — tanpa kata "salah", selalu ramah anak.
+- **Hadiah:** koin, bintang (1–3 per level), dan 11 lencana.
+- **Progress tersimpan** otomatis di browser (localStorage).
 
-Cukup buka `index.html` di browser. Tidak perlu server atau backend.
+| Dunia | Level | Isi |
+|-------|-------|-----|
+| 🌱 Desa Faktor      | 1–3   | Berbagi rata & cari faktor |
+| 🌈 Kota Kelipatan   | 4–6   | Lompat hewan & cari kelipatan |
+| 🏰 Istana FPB       | 7–9   | Keranjang buah (FPB) |
+| 🚀 Planet KPK       | 10–12 | Dua hewan melompat (KPK) |
+| 🏆 Tantangan Master | 13–15 | Campuran FPB & KPK |
 
-Atau jalankan server statis sederhana:
-
-```bash
-cd petualangan-kpk-fpb
-python3 -m http.server 8000
-# buka http://localhost:8000
+## 📁 Struktur Project
 ```
-
-## 📁 Struktur
-
-```
-petualangan-kpk-fpb/
-├── index.html      # semua halaman/screen
-├── style.css       # desain ramah anak, responsive
-├── script.js       # logika game, data level, skor, localStorage
-├── README.md
+fpb-kpk-game/
+├── index.html      # kerangka 8 halaman
+├── style.css       # warna, tampilan, animasi
+├── script.js       # data level + logika game
 └── assets/
-    ├── images/     # (opsional — maskot memakai CSS/emoji)
-    └── sounds/     # (opsional — suara dibuat via Web Audio API)
+    ├── images/     # opsional (game memakai emoji)
+    └── sounds/     # opsional (bunyi dibuat oleh browser)
 ```
 
-## ➕ Menambah Level
+## 🔧 Cara Memodifikasi (untuk pemula)
+Semua yang sering diubah ada di `script.js`, di **bagian 1 (Pengaturan)** dan **bagian 2 (Data Level)**.
 
-Tambahkan entri baru pada array `LEVELS` di `script.js`:
+- **Tambah level:** tambahkan objek baru di array `LEVELS` (lihat komentar di atasnya untuk jenis soal).
+- **Ubah soal:** cukup ganti angkanya — jawaban dihitung otomatis.
+- **Ubah karakter:** edit array `CHARACTERS` (pemain), `ANIMALS` (hewan lompat), atau `CONFIG.guide` (guru pemandu).
+- **Ubah warna:** edit nilai di `:root` pada `style.css`; warna tiap dunia ada di `WORLDS[].color`.
+- **Pakai suara sendiri:** isi `CONFIG.soundFiles` di `script.js`.
 
-```js
-{ type:'KPK', pairs:[[4,6],[6,8]] }          // soal KPK
-{ type:'FPB', pairs:[[8,12]] }                // soal FPB
-{ type:'STORY_KPK', pairs:[[4,6]] }           // soal cerita KPK
-{ type:'CHOOSE', pairs:[['KPK',4,6]] }        // anak pilih KPK/FPB dulu
-```
+## 🧩 Jenis Soal yang Tersedia
+`bagi`, `faktor`, `lompat`, `kelipatan`, `fpb`, `kpk` — masing-masing dijelaskan
+di komentar bagian 2 pada `script.js`.
 
-Jawaban dihitung otomatis dan tervalidasi (`gcd`/`lcm`), jadi tidak ada soal ambigu.
+## 💻 Teknologi
+HTML + CSS + JavaScript murni (tanpa framework). Bunyi dibuat memakai Web Audio API,
+jadi game tetap bersuara tanpa file audio eksternal.

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#7c4dff" />
+  <title>Petualangan KPK &amp; FPB</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Tombol audio global -->
+  <button id="audioToggle" class="audio-toggle" aria-label="Nyalakan atau matikan suara" title="Suara">
+    <span id="audioIcon">🔊</span>
+  </button>
+
+  <div id="app">
+
+    <!-- ============ SPLASH SCREEN ============ -->
+    <section id="screen-splash" class="screen active splash">
+      <div class="splash-inner">
+        <div class="mascot mascot-big bounce" aria-hidden="true">
+          <div class="mascot-face">
+            <span class="m-eye"></span><span class="m-eye"></span>
+            <span class="m-smile"></span>
+          </div>
+          <span class="mascot-badge">×÷</span>
+        </div>
+        <h1 class="splash-title">Petualangan<br /><span>KPK &amp; FPB</span></h1>
+        <p class="splash-sub">Belajar Gampang, Asyik, dan Menyenangkan!</p>
+        <div class="loader"><span></span><span></span><span></span></div>
+        <button class="btn btn-primary btn-xl splash-start" data-go="menu">▶ MULAI</button>
+      </div>
+    </section>
+
+    <!-- ============ MAIN MENU ============ -->
+    <section id="screen-menu" class="screen">
+      <header class="topbar">
+        <div class="coin-pill" title="Total poin">⭐ <span id="menuPoints">0</span></div>
+        <div class="coin-pill" title="Badge">🏆 <span id="menuBadges">0</span>/6</div>
+      </header>
+      <div class="menu-wrap">
+        <div class="mascot mascot-mid float" aria-hidden="true">
+          <div class="mascot-face">
+            <span class="m-eye"></span><span class="m-eye"></span>
+            <span class="m-smile"></span>
+          </div>
+          <span class="mascot-badge">×÷</span>
+        </div>
+        <h1 class="menu-title">PETUALANGAN KPK &amp; FPB</h1>
+        <p class="menu-sub">Belajar Gampang, Asyik, dan Menyenangkan!</p>
+        <div class="menu-grid">
+          <button class="btn btn-menu btn-play" data-go="levelselect">🎮<span>MULAI BERMAIN</span></button>
+          <button class="btn btn-menu btn-learn-kpk" data-action="tutorial-kpk">🐇<span>BELAJAR KPK</span></button>
+          <button class="btn btn-menu btn-learn-fpb" data-action="tutorial-fpb">🍬<span>BELAJAR FPB</span></button>
+          <button class="btn btn-menu btn-challenge" data-action="challenge">⚡<span>TANTANGAN</span></button>
+          <button class="btn btn-menu btn-reward" data-go="reward">🏆<span>HADIAH</span></button>
+          <button class="btn btn-menu btn-progress" data-go="progress">📊<span>PROGRESS</span></button>
+        </div>
+        <button class="btn btn-ghost btn-settings" data-go="settings">⚙️ Pengaturan</button>
+      </div>
+    </section>
+
+    <!-- ============ LEVEL SELECT ============ -->
+    <section id="screen-levelselect" class="screen">
+      <header class="topbar">
+        <button class="btn btn-back" data-go="menu">‹ Kembali</button>
+        <h2 class="topbar-title">Pilih Level</h2>
+        <div class="coin-pill">⭐ <span id="lsPoints">0</span></div>
+      </header>
+      <div class="content">
+        <p class="hint-line">Selesaikan level untuk membuka level berikutnya! 🚀</p>
+        <div id="levelGrid" class="level-grid"></div>
+      </div>
+    </section>
+
+    <!-- ============ TUTORIAL ============ -->
+    <section id="screen-tutorial" class="screen">
+      <header class="topbar">
+        <button class="btn btn-back" data-go="menu">‹ Menu</button>
+        <h2 class="topbar-title" id="tutTitle">Tutorial</h2>
+        <div style="width:70px"></div>
+      </header>
+      <div class="content">
+        <div id="tutStage" class="tut-stage"></div>
+        <div class="tut-nav">
+          <button class="btn btn-ghost" id="tutPrev">‹ Kembali</button>
+          <div class="dots" id="tutDots"></div>
+          <button class="btn btn-primary" id="tutNext">Lanjut ›</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ GAME (Level & Challenge) ============ -->
+    <section id="screen-game" class="screen">
+      <header class="topbar">
+        <button class="btn btn-back" id="gameQuit">‹ Keluar</button>
+        <div class="lives" id="gameLives"></div>
+        <div class="coin-pill">⭐ <span id="gamePoints">0</span></div>
+      </header>
+      <div class="game-progress"><div class="game-progress-bar" id="gameProgressBar"></div></div>
+      <div class="content">
+        <div class="q-head">
+          <span class="q-count" id="qCount">Soal 1 / 5</span>
+          <span class="q-tag" id="qTag">KPK</span>
+        </div>
+        <div id="gameStage" class="game-stage"></div>
+      </div>
+    </section>
+
+    <!-- ============ RESULT ============ -->
+    <section id="screen-result" class="screen">
+      <div class="result-wrap">
+        <div class="confetti" id="confetti"></div>
+        <div class="mascot mascot-mid bounce" aria-hidden="true">
+          <div class="mascot-face"><span class="m-eye"></span><span class="m-eye"></span><span class="m-smile"></span></div>
+          <span class="mascot-badge">×÷</span>
+        </div>
+        <div class="stars-big" id="resultStars"></div>
+        <h2 id="resultTitle">Hebat sekali!</h2>
+        <p id="resultMsg" class="result-msg"></p>
+        <div class="result-score">+<span id="resultScore">0</span> poin</div>
+        <div id="resultBadges" class="result-badges"></div>
+        <div class="result-btns">
+          <button class="btn btn-ghost" id="resultReplay">🔁 Ulangi</button>
+          <button class="btn btn-primary btn-xl" id="resultNext">Lanjut ›</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ REWARD / BADGE ============ -->
+    <section id="screen-reward" class="screen">
+      <header class="topbar">
+        <button class="btn btn-back" data-go="menu">‹ Menu</button>
+        <h2 class="topbar-title">Hadiah &amp; Badge</h2>
+        <div style="width:70px"></div>
+      </header>
+      <div class="content">
+        <p class="hint-line">Kumpulkan semua badge, ya! 🌟</p>
+        <div id="badgeGrid" class="badge-grid"></div>
+      </div>
+    </section>
+
+    <!-- ============ PROGRESS ============ -->
+    <section id="screen-progress" class="screen">
+      <header class="topbar">
+        <button class="btn btn-back" data-go="menu">‹ Menu</button>
+        <h2 class="topbar-title">Progress Kamu</h2>
+        <div style="width:70px"></div>
+      </header>
+      <div class="content">
+        <div class="progress-card">
+          <div class="mascot mascot-sm float" aria-hidden="true">
+            <div class="mascot-face"><span class="m-eye"></span><span class="m-eye"></span><span class="m-smile"></span></div>
+          </div>
+          <div class="progress-info">
+            <div class="pl-name">Petualang</div>
+            <div class="pl-row"><span>Level</span><b id="prgLevel">0 / 15</b></div>
+            <div class="pbar"><div class="pbar-fill" id="prgLevelBar"></div></div>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-box"><div class="stat-num" id="prgPoints">0</div><div class="stat-lbl">⭐ Total Poin</div></div>
+          <div class="stat-box"><div class="stat-num" id="prgStars">0</div><div class="stat-lbl">🌟 Bintang</div></div>
+          <div class="stat-box"><div class="stat-num" id="prgBadges">0/6</div><div class="stat-lbl">🏆 Badge</div></div>
+          <div class="stat-box"><div class="stat-num" id="prgBest">0</div><div class="stat-lbl">⚡ Skor Tantangan</div></div>
+        </div>
+        <div class="stars-track" id="prgStarTrack"></div>
+        <button class="btn btn-ghost btn-reset" id="resetProgress">🗑️ Reset Progress</button>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="screen-settings" class="screen">
+      <header class="topbar">
+        <button class="btn btn-back" data-go="menu">‹ Menu</button>
+        <h2 class="topbar-title">Pengaturan</h2>
+        <div style="width:70px"></div>
+      </header>
+      <div class="content">
+        <div class="setting-row">
+          <span>🔊 Suara</span>
+          <button class="toggle" id="setSound"><span class="knob"></span></button>
+        </div>
+        <div class="setting-row">
+          <span>❤️ Sistem Nyawa</span>
+          <button class="toggle" id="setLives"><span class="knob"></span></button>
+        </div>
+        <div class="about">
+          <p><b>Petualangan KPK &amp; FPB</b></p>
+          <p>Game belajar matematika untuk anak SD kelas 3.</p>
+          <p>Metode GASING — Gampang, Asyik, Menyenangkan!</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Toast feedback -->
+  <div id="toast" class="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
